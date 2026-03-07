@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nuevo Envío | Ruta Express BA</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container center-page">
+    <section class="card form-card wide">
+      <div class="row-between">
+        <div>
+          <p class="eyebrow">Operación</p>
+          <h2>Nuevo envío</h2>
+          <p class="muted">Sesión: {{ usuario_email }}</p>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="/dashboard">Ver panel</a>
+          <a class="btn btn-secondary" href="/logout">Salir</a>
+        </div>
+      </div>
+
+      <form method="post" class="form-grid two-cols">
+        <div>
+          <label>Nombre cliente</label>
+          <input name="cliente" placeholder="Ej: Marta Pérez" required>
+        </div>
+
+        <div>
+          <label>Teléfono</label>
+          <input name="telefono" placeholder="Ej: +54 11 5555 5555" required>
+        </div>
+
+        <div>
+          <label>Dirección de retiro</label>
+          <input name="direccion_retiro" placeholder="Ej: Av. Corrientes 1234" required>
+        </div>
+
+        <div>
+          <label>Dirección de entrega</label>
+          <input name="direccion_entrega" placeholder="Ej: Cabildo 2000" required>
+        </div>
+
+        <div class="full-col">
+          <label>Conductor asignado</label>
+          <select name="conductor_id" class="status-select" required>
+            {% for conductor in conductores %}
+            <option value="{{ conductor.id }}">{{ conductor.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="full-col">
+          <button type="submit" class="btn btn-primary">Guardar envío</button>
+        </div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

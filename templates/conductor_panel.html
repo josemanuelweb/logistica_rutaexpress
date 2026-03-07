@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Conductor | Ruta Express BA</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container">
+    <section class="card dashboard-head">
+      <div>
+        <p class="eyebrow">Conductor</p>
+        <h2>{{ conductor.nombre }}</h2>
+        <p class="muted">{{ conductor.telefono }}</p>
+        <p class="muted">Sesión: {{ usuario_email }}</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/acceso-conductor">Cambiar conductor</a>
+        <a class="btn btn-secondary" href="/logout">Salir</a>
+        <a class="btn btn-primary" href="/">Inicio</a>
+      </div>
+    </section>
+
+    <section class="driver-grid">
+      {% for envio in envios %}
+      <article class="card driver-card">
+        <p class="driver-id">Envio #{{ envio.id }}</p>
+        <h3>{{ envio.cliente }}</h3>
+        <p class="driver-line"><strong>Telefono:</strong> {{ envio.telefono }}</p>
+        <p class="driver-line"><strong>Retiro:</strong> {{ envio.direccion_retiro }}</p>
+        <p class="driver-line"><strong>Entrega:</strong> {{ envio.direccion_entrega }}</p>
+
+        <p>
+          <span class="badge badge-{{ envio.estado|lower|replace(' ', '_') }}">
+            {{ envio.estado|replace('_', ' ')|title }}
+          </span>
+        </p>
+
+        <form method="post" action="/conductor/{{ conductor.id }}/envio/{{ envio.id }}/estado" class="driver-actions">
+          <button type="submit" name="estado" value="pendiente" class="btn btn-secondary">Pendiente</button>
+          <button type="submit" name="estado" value="en_ruta" class="btn btn-primary">En ruta</button>
+          <button type="submit" name="estado" value="entregado" class="btn btn-success">Entregado</button>
+        </form>
+      </article>
+      {% endfor %}
+    </section>
+
+    {% if envios|length == 0 %}
+    <section class="card table-card">
+      <p class="empty-state">No tienes envíos asignados.</p>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
