@@ -237,39 +237,15 @@ def dashboard(request: Request, estado: str = "", q: str = "", conductor: str = 
 
 
 @app.get("/conductores", response_class=HTMLResponse)
-def conductores_page(request: Request, conductor: str = ""):
+def conductores_page(request: Request):
     auth_redirect = login_required(request)
     if auth_redirect:
         return auth_redirect
-
-    conductor_id = int(conductor) if conductor.strip().isdigit() else None
 
     conn = get_db()
     conductores = conn.execute(
         "SELECT id, nombre, telefono FROM conductores ORDER BY nombre ASC"
     ).fetchall()
-    conductor_seleccionado = None
-    envios_conductor = []
-    if conductor_id:
-        conductor_seleccionado = conn.execute(
-            "SELECT id, nombre, telefono FROM conductores WHERE id = ?",
-            (conductor_id,),
-        ).fetchone()
-        if conductor_seleccionado:
-            envios_conductor = conn.execute(
-                """
-                SELECT *
-                FROM envios
-                WHERE conductor_id = ?
-                ORDER BY CASE estado
-                    WHEN 'pendiente' THEN 1
-                    WHEN 'en_ruta' THEN 2
-                    WHEN 'entregado' THEN 3
-                    ELSE 4
-                END, id DESC
-                """,
-                (conductor_id,),
-            ).fetchall()
     conn.close()
 
     return templates.TemplateResponse(
@@ -277,9 +253,6 @@ def conductores_page(request: Request, conductor: str = ""):
         {
             "request": request,
             "conductores": conductores,
-            "conductor_seleccionado": conductor_seleccionado,
-            "envios_conductor": envios_conductor,
-            "filtro_conductor_panel": conductor_id,
             "usuario_email": request.session.get("user_email", ""),
         },
     )
@@ -431,7 +404,7 @@ def acceso_conductor_page(request: Request):
     if auth_redirect:
         return auth_redirect
 
-    return RedirectResponse("/conductores", status_code=303)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 @app.post("/acceso-conductor")
@@ -440,7 +413,7 @@ def acceso_conductor(request: Request, conductor_id: int = Form(...)):
     if auth_redirect:
         return auth_redirect
 
-    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
+    return RedirectResponse(f"/dashboard?conductor={conductor_id}", status_code=303)
 
 
 @app.get("/conductor/{conductor_id}", response_class=HTMLResponse)
@@ -449,7 +422,7 @@ def panel_conductor(request: Request, conductor_id: int):
     if auth_redirect:
         return auth_redirect
 
-    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
+    return RedirectResponse(f"/dashboard?conductor={conductor_id}", status_code=303)
 
 
 @app.post("/conductor/{conductor_id}/envio/{envio_id}/estado")
@@ -466,7 +439,7 @@ def actualizar_estado_conductor(
     estado_normalizado = estado.strip().lower().replace(" ", "_")
 
     if estado_normalizado not in ESTADOS_VALIDOS:
-        return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
+        return RedirectResponse(f"/dashboard?conductor={conductor_id}", status_code=303)
 
     conn = get_db()
     conn.execute(
@@ -476,4 +449,4 @@ def actualizar_estado_conductor(
     conn.commit()
     conn.close()
 
-    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
+    return RedirectResponse(f"/dashboard?conductor={conductor_id}", status_code=303)

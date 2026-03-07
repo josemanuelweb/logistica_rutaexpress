@@ -263,8 +263,8 @@ def test_legacy_conductor_routes_redirect_to_unified_page(app_client):
 
     acceso = client.get("/acceso-conductor", follow_redirects=False)
     assert acceso.status_code == 303
-    assert acceso.headers["location"] == "/conductores"
+    assert acceso.headers["location"] == "/dashboard"
 
     panel = client.get(f"/conductor/{conductor_id}", follow_redirects=False)
     assert panel.status_code == 303
-    assert panel.headers["location"] == f"/conductores?conductor={conductor_id}"
+    assert panel.headers["location"] == f"/dashboard?conductor={conductor_id}"
