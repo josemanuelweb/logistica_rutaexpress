@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conductores | Ruta Express BA</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container">
+    <section class="card dashboard-head">
+      <div>
+        <p class="eyebrow">Operación</p>
+        <h2>Conductores</h2>
+        <p class="muted">Sesión: {{ usuario_email }}</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/dashboard">Volver al panel</a>
+        <a class="btn btn-secondary" href="/logout">Salir</a>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <h3>Panel operativo por conductor</h3>
+      <form method="get" action="/conductores" class="filters-bar">
+        <select name="conductor" class="status-select" required>
+          <option value="">Seleccionar conductor</option>
+          {% for conductor in conductores %}
+          <option value="{{ conductor.id }}" {% if filtro_conductor_panel == conductor.id %}selected{% endif %}>{{ conductor.nombre }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Ver envíos</button>
+        <a class="btn btn-secondary" href="/conductores">Limpiar</a>
+      </form>
+
+      {% if conductor_seleccionado %}
+      <p class="muted">
+        Conductor seleccionado: <strong>{{ conductor_seleccionado.nombre }}</strong>
+        {% if conductor_seleccionado.telefono %} - {{ conductor_seleccionado.telefono }}{% endif %}
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Cliente</th>
+              <th>Teléfono</th>
+              <th>Retiro</th>
+              <th>Entrega</th>
+              <th>Estado</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for envio in envios_conductor %}
+            <tr>
+              <td>#{{ envio.id }}</td>
+              <td>{{ envio.cliente }}</td>
+              <td>{{ envio.telefono }}</td>
+              <td>{{ envio.direccion_retiro }}</td>
+              <td>{{ envio.direccion_entrega }}</td>
+              <td>
+                <span class="badge badge-{{ envio.estado|lower|replace(' ', '_') }}">
+                  {{ envio.estado|replace('_', ' ')|title }}
+                </span>
+              </td>
+              <td>
+                <form method="post" action="/conductor/{{ conductor_seleccionado.id }}/envio/{{ envio.id }}/estado" class="status-form">
+                  <select name="estado" class="status-select">
+                    <option value="pendiente" {% if envio.estado == "pendiente" %}selected{% endif %}>Pendiente</option>
+                    <option value="en_ruta" {% if envio.estado == "en_ruta" %}selected{% endif %}>En ruta</option>
+                    <option value="entregado" {% if envio.estado == "entregado" %}selected{% endif %}>Entregado</option>
+                  </select>
+                  <button type="submit" class="btn btn-mini">Guardar</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if envios_conductor|length == 0 %}
+      <p class="empty-state">Este conductor no tiene envíos asignados.</p>
+      {% endif %}
+      {% endif %}
+    </section>
+
+    <section class="card form-card">
+      <h3>Gestionar conductores</h3>
+      <form method="post" action="/conductores" class="form-grid two-cols">
+        <div>
+          <label>Nombre</label>
+          <input name="nombre" placeholder="Ej: Juan Gómez" required>
+        </div>
+        <div>
+          <label>Teléfono</label>
+          <input name="telefono" placeholder="Ej: +54 11 4444 4444">
+        </div>
+        <div class="full-col">
+          <button type="submit" class="btn btn-primary">Guardar conductor</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Teléfono</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for conductor in conductores %}
+            <tr>
+              <td>#{{ conductor.id }}</td>
+              <td>
+                <form method="post" action="/conductores/{{ conductor.id }}/editar" class="status-form">
+                  <input name="nombre" value="{{ conductor.nombre }}" required>
+              </td>
+              <td>
+                  <input name="telefono" value="{{ conductor.telefono or '' }}">
+              </td>
+              <td>
+                  <button type="submit" class="btn btn-mini">Guardar</button>
+                </form>
+                <form method="post" action="/conductores/{{ conductor.id }}/eliminar" class="status-form" onsubmit="return confirm('¿Eliminar este conductor?');">
+                  <button type="submit" class="btn btn-danger">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if conductores|length == 0 %}
+      <p class="empty-state">Aún no hay conductores cargados.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

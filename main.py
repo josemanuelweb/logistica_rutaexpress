@@ -1,7 +1,6 @@
 import hashlib
 import hmac
 import os
-import secrets
 import sqlite3
 
 from fastapi import FastAPI, Form, Request
@@ -237,6 +236,119 @@ def dashboard(request: Request, estado: str = "", q: str = "", conductor: str = 
     )
 
 
+@app.get("/conductores", response_class=HTMLResponse)
+def conductores_page(request: Request, conductor: str = ""):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    conductor_id = int(conductor) if conductor.strip().isdigit() else None
+
+    conn = get_db()
+    conductores = conn.execute(
+        "SELECT id, nombre, telefono FROM conductores ORDER BY nombre ASC"
+    ).fetchall()
+    conductor_seleccionado = None
+    envios_conductor = []
+    if conductor_id:
+        conductor_seleccionado = conn.execute(
+            "SELECT id, nombre, telefono FROM conductores WHERE id = ?",
+            (conductor_id,),
+        ).fetchone()
+        if conductor_seleccionado:
+            envios_conductor = conn.execute(
+                """
+                SELECT *
+                FROM envios
+                WHERE conductor_id = ?
+                ORDER BY CASE estado
+                    WHEN 'pendiente' THEN 1
+                    WHEN 'en_ruta' THEN 2
+                    WHEN 'entregado' THEN 3
+                    ELSE 4
+                END, id DESC
+                """,
+                (conductor_id,),
+            ).fetchall()
+    conn.close()
+
+    return templates.TemplateResponse(
+        "conductores.html",
+        {
+            "request": request,
+            "conductores": conductores,
+            "conductor_seleccionado": conductor_seleccionado,
+            "envios_conductor": envios_conductor,
+            "filtro_conductor_panel": conductor_id,
+            "usuario_email": request.session.get("user_email", ""),
+        },
+    )
+
+
+@app.post("/conductores")
+def crear_conductor(request: Request, nombre: str = Form(...), telefono: str = Form("")):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    nombre_normalizado = nombre.strip()
+    telefono_normalizado = telefono.strip()
+    if not nombre_normalizado:
+        return RedirectResponse("/conductores", status_code=303)
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO conductores (nombre, telefono) VALUES (?, ?)",
+        (nombre_normalizado, telefono_normalizado),
+    )
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse("/conductores", status_code=303)
+
+
+@app.post("/conductores/{conductor_id}/editar")
+def editar_conductor(
+    request: Request,
+    conductor_id: int,
+    nombre: str = Form(...),
+    telefono: str = Form(""),
+):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    nombre_normalizado = nombre.strip()
+    telefono_normalizado = telefono.strip()
+    if not nombre_normalizado:
+        return RedirectResponse("/conductores", status_code=303)
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE conductores SET nombre = ?, telefono = ? WHERE id = ?",
+        (nombre_normalizado, telefono_normalizado, conductor_id),
+    )
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse("/conductores", status_code=303)
+
+
+@app.post("/conductores/{conductor_id}/eliminar")
+def eliminar_conductor(request: Request, conductor_id: int):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    conn = get_db()
+    conn.execute("UPDATE envios SET conductor_id = NULL WHERE conductor_id = ?", (conductor_id,))
+    conn.execute("DELETE FROM conductores WHERE id = ?", (conductor_id,))
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse("/conductores", status_code=303)
+
+
 @app.get("/nuevo-envio", response_class=HTMLResponse)
 def nuevo_envio_page(request: Request):
     auth_redirect = login_required(request)
@@ -319,20 +431,7 @@ def acceso_conductor_page(request: Request):
     if auth_redirect:
         return auth_redirect
 
-    conn = get_db()
-    conductores = conn.execute(
-        "SELECT id, nombre, telefono FROM conductores ORDER BY nombre ASC"
-    ).fetchall()
-    conn.close()
-
-    return templates.TemplateResponse(
-        "conductor_acceso.html",
-        {
-            "request": request,
-            "conductores": conductores,
-            "usuario_email": request.session.get("user_email", ""),
-        },
-    )
+    return RedirectResponse("/conductores", status_code=303)
 
 
 @app.post("/acceso-conductor")
@@ -341,7 +440,7 @@ def acceso_conductor(request: Request, conductor_id: int = Form(...)):
     if auth_redirect:
         return auth_redirect
 
-    return RedirectResponse(f"/conductor/{conductor_id}", status_code=303)
+    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
 
 
 @app.get("/conductor/{conductor_id}", response_class=HTMLResponse)
@@ -350,40 +449,7 @@ def panel_conductor(request: Request, conductor_id: int):
     if auth_redirect:
         return auth_redirect
 
-    conn = get_db()
-    conductor = conn.execute(
-        "SELECT id, nombre, telefono FROM conductores WHERE id = ?", (conductor_id,)
-    ).fetchone()
-
-    if not conductor:
-        conn.close()
-        return RedirectResponse("/acceso-conductor", status_code=303)
-
-    envios = conn.execute(
-        """
-        SELECT *
-        FROM envios
-        WHERE conductor_id = ?
-        ORDER BY CASE estado
-            WHEN 'pendiente' THEN 1
-            WHEN 'en_ruta' THEN 2
-            WHEN 'entregado' THEN 3
-            ELSE 4
-        END, id DESC
-        """,
-        (conductor_id,),
-    ).fetchall()
-    conn.close()
-
-    return templates.TemplateResponse(
-        "conductor_panel.html",
-        {
-            "request": request,
-            "conductor": conductor,
-            "envios": envios,
-            "usuario_email": request.session.get("user_email", ""),
-        },
-    )
+    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
 
 
 @app.post("/conductor/{conductor_id}/envio/{envio_id}/estado")
@@ -400,7 +466,7 @@ def actualizar_estado_conductor(
     estado_normalizado = estado.strip().lower().replace(" ", "_")
 
     if estado_normalizado not in ESTADOS_VALIDOS:
-        return RedirectResponse(f"/conductor/{conductor_id}", status_code=303)
+        return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
 
     conn = get_db()
     conn.execute(
@@ -410,4 +476,4 @@ def actualizar_estado_conductor(
     conn.commit()
     conn.close()
 
-    return RedirectResponse(f"/conductor/{conductor_id}", status_code=303)
+    return RedirectResponse(f"/conductores?conductor={conductor_id}", status_code=303)
