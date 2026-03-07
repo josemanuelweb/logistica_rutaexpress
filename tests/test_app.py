@@ -93,13 +93,14 @@ def test_create_envio_authenticated(app_client):
 
     check_conn = main.get_db()
     envio = check_conn.execute(
-        "SELECT cliente, estado, conductor_id FROM envios ORDER BY id DESC LIMIT 1"
+        "SELECT cliente, estado, conductor_id, fecha FROM envios ORDER BY id DESC LIMIT 1"
     ).fetchone()
     check_conn.close()
 
     assert envio["cliente"] == "Marta Perez"
     assert envio["estado"] == "pendiente"
     assert envio["conductor_id"] == 1
+    assert envio["fecha"] == main.today_iso()
 
 
 def test_create_conductor_authenticated(app_client):
@@ -268,3 +269,48 @@ def test_legacy_conductor_routes_redirect_to_unified_page(app_client):
     panel = client.get(f"/conductor/{conductor_id}", follow_redirects=False)
     assert panel.status_code == 303
     assert panel.headers["location"] == f"/dashboard?conductor={conductor_id}"
+
+
+def test_export_hoja_ruta_csv_respects_filters(app_client):
+    client, main = app_client
+
+    conn = main.get_db()
+    conn.execute(
+        "INSERT INTO users (email, password) VALUES (?, ?)",
+        ("admin6@test.local", main.hash_password("adminpass")),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente Ruta", "2222", "Retiro A", "Entrega B", "2026-03-01", "pendiente", 1),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente Otro", "3333", "Retiro X", "Entrega Y", "2026-03-02", "pendiente", 2),
+    )
+    conn.commit()
+    conn.close()
+
+    client.post(
+        "/login",
+        data={"email": "admin6@test.local", "password": "adminpass"},
+        follow_redirects=False,
+    )
+
+    response = client.get(
+        "/dashboard/hoja-ruta.csv?fecha=2026-03-01&conductor=1",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    csv_text = response.text
+    assert "Cliente Ruta" in csv_text
+    assert "Cliente Otro" not in csv_text

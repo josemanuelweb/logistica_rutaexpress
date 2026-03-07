@@ -25,6 +25,13 @@
     <section class="card table-card">
       <form method="get" action="/dashboard" class="filters-bar">
         <input
+          type="date"
+          name="fecha"
+          value="{{ filtro_fecha }}"
+          class="status-select"
+        >
+
+        <input
           type="text"
           name="q"
           value="{{ filtro_q }}"
@@ -47,6 +54,14 @@
         </select>
 
         <button type="submit" class="btn btn-primary">Filtrar</button>
+        <button
+          type="submit"
+          formaction="/dashboard/hoja-ruta.csv"
+          formmethod="get"
+          class="btn btn-secondary"
+        >
+          Descargar hoja de ruta
+        </button>
         <a href="/dashboard" class="btn btn-secondary">Limpiar</a>
       </form>
 
@@ -55,6 +70,7 @@
           <thead>
             <tr>
               <th>ID</th>
+              <th>Fecha</th>
               <th>Cliente</th>
               <th>Teléfono</th>
               <th>Retiro</th>
@@ -68,6 +84,7 @@
             {% for envio in envios %}
             <tr>
               <td>#{{ envio.id }}</td>
+              <td>{{ envio.fecha }}</td>
               <td>{{ envio.cliente }}</td>
               <td>{{ envio.telefono }}</td>
               <td>{{ envio.direccion_retiro }}</td>

@@ -1,10 +1,13 @@
 import hashlib
 import hmac
+import io
 import os
 import sqlite3
+from csv import writer
+from datetime import date, datetime
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -66,6 +69,20 @@ def login_required(request: Request):
     return None
 
 
+def today_iso() -> str:
+    return date.today().isoformat()
+
+
+def normalize_date_or_today(raw_date: str) -> str:
+    candidate = raw_date.strip()
+    if not candidate:
+        return today_iso()
+    try:
+        return datetime.strptime(candidate, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return today_iso()
+
+
 def init_db():
     conn = get_db()
 
@@ -97,6 +114,7 @@ def init_db():
     telefono TEXT,
     direccion_retiro TEXT,
     direccion_entrega TEXT,
+    fecha TEXT,
     estado TEXT,
     conductor_id INTEGER
     )
@@ -108,6 +126,13 @@ def init_db():
     ]
     if "conductor_id" not in columnas_envios:
         conn.execute("ALTER TABLE envios ADD COLUMN conductor_id INTEGER")
+    if "fecha" not in columnas_envios:
+        conn.execute("ALTER TABLE envios ADD COLUMN fecha TEXT")
+
+    conn.execute(
+        "UPDATE envios SET fecha = ? WHERE fecha IS NULL OR fecha = ''",
+        (today_iso(),),
+    )
 
     conteo_conductores = conn.execute("SELECT COUNT(*) FROM conductores").fetchone()[0]
     if conteo_conductores == 0:
@@ -178,7 +203,9 @@ def logout(request: Request):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, estado: str = "", q: str = "", conductor: str = ""):
+def dashboard(
+    request: Request, estado: str = "", q: str = "", conductor: str = "", fecha: str = ""
+):
     auth_redirect = login_required(request)
     if auth_redirect:
         return auth_redirect
@@ -189,10 +216,14 @@ def dashboard(request: Request, estado: str = "", q: str = "", conductor: str = 
 
     estado_normalizado = estado.strip().lower().replace(" ", "_")
     query_texto = q.strip()
+    fecha_filtro = normalize_date_or_today(fecha)
 
     conductor_id = None
     if conductor.strip().isdigit():
         conductor_id = int(conductor.strip())
+
+    filtros.append("e.fecha = ?")
+    params.append(fecha_filtro)
 
     if estado_normalizado in ESTADOS_VALIDOS:
         filtros.append("e.estado = ?")
@@ -231,8 +262,101 @@ def dashboard(request: Request, estado: str = "", q: str = "", conductor: str = 
             "filtro_estado": estado_normalizado if estado_normalizado in ESTADOS_VALIDOS else "",
             "filtro_q": query_texto,
             "filtro_conductor": conductor_id,
+            "filtro_fecha": fecha_filtro,
             "usuario_email": request.session.get("user_email", ""),
         },
+    )
+
+
+@app.get("/dashboard/hoja-ruta.csv")
+def descargar_hoja_ruta(
+    request: Request, estado: str = "", q: str = "", conductor: str = "", fecha: str = ""
+):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    conn = get_db()
+    filtros = []
+    params = []
+
+    estado_normalizado = estado.strip().lower().replace(" ", "_")
+    query_texto = q.strip()
+    fecha_filtro = normalize_date_or_today(fecha)
+
+    conductor_id = None
+    if conductor.strip().isdigit():
+        conductor_id = int(conductor.strip())
+
+    filtros.append("e.fecha = ?")
+    params.append(fecha_filtro)
+
+    if estado_normalizado in ESTADOS_VALIDOS:
+        filtros.append("e.estado = ?")
+        params.append(estado_normalizado)
+
+    if query_texto:
+        filtros.append("(e.cliente LIKE ? OR e.telefono LIKE ?)")
+        like_val = f"%{query_texto}%"
+        params.extend([like_val, like_val])
+
+    if conductor_id:
+        filtros.append("e.conductor_id = ?")
+        params.append(conductor_id)
+
+    sql = """
+        SELECT e.id, e.fecha, e.cliente, e.telefono, e.direccion_retiro, e.direccion_entrega, e.estado, c.nombre AS conductor_nombre
+        FROM envios e
+        LEFT JOIN conductores c ON c.id = e.conductor_id
+    """
+    if filtros:
+        sql += " WHERE " + " AND ".join(filtros)
+    sql += " ORDER BY e.id DESC"
+
+    envios = conn.execute(sql, params).fetchall()
+    conductor_nombre = "todos"
+    if conductor_id:
+        conductor_row = conn.execute(
+            "SELECT nombre FROM conductores WHERE id = ?", (conductor_id,)
+        ).fetchone()
+        if conductor_row:
+            conductor_nombre = conductor_row["nombre"].strip().replace(" ", "_").lower()
+    conn.close()
+
+    buffer = io.StringIO()
+    csv_writer = writer(buffer, delimiter=";")
+    csv_writer.writerow(
+        [
+            "id",
+            "fecha",
+            "cliente",
+            "telefono",
+            "direccion_retiro",
+            "direccion_entrega",
+            "conductor",
+            "estado",
+        ]
+    )
+    for envio in envios:
+        csv_writer.writerow(
+            [
+                envio["id"],
+                envio["fecha"],
+                envio["cliente"],
+                envio["telefono"],
+                envio["direccion_retiro"],
+                envio["direccion_entrega"],
+                envio["conductor_nombre"] or "",
+                envio["estado"],
+            ]
+        )
+
+    csv_content = "\ufeff" + buffer.getvalue()
+    filename = f"hoja_ruta_{fecha_filtro}_{conductor_nombre}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -339,6 +463,7 @@ def nuevo_envio_page(request: Request):
         {
             "request": request,
             "conductores": conductores,
+            "fecha_hoy": today_iso(),
             "usuario_email": request.session.get("user_email", ""),
         },
     )
@@ -351,11 +476,14 @@ def nuevo_envio(
     telefono: str = Form(...),
     direccion_retiro: str = Form(...),
     direccion_entrega: str = Form(...),
+    fecha: str = Form(""),
     conductor_id: int = Form(...),
 ):
     auth_redirect = login_required(request)
     if auth_redirect:
         return auth_redirect
+
+    fecha_envio = normalize_date_or_today(fecha)
 
     conn = get_db()
     conductor = conn.execute(
@@ -366,10 +494,17 @@ def nuevo_envio(
     conn.execute(
         """
         INSERT INTO envios
-        (cliente, telefono, direccion_retiro, direccion_entrega, estado, conductor_id)
-        VALUES (?, ?, ?, ?, 'pendiente', ?)
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, 'pendiente', ?)
         """,
-        (cliente, telefono, direccion_retiro, direccion_entrega, conductor_id_val),
+        (
+            cliente,
+            telefono,
+            direccion_retiro,
+            direccion_entrega,
+            fecha_envio,
+            conductor_id_val,
+        ),
     )
 
     conn.commit()
