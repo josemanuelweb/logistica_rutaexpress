@@ -54,6 +54,14 @@
         </select>
 
         <button type="submit" class="btn btn-primary">Filtrar</button>
+        {% if filtro_conductor %}
+        <a
+          href="/conductores/{{ filtro_conductor }}/ruta?fecha={{ filtro_fecha }}&estado={{ filtro_estado }}"
+          class="btn btn-secondary"
+        >
+          Generar ruta en mapa
+        </a>
+        {% endif %}
         <button
           type="submit"
           formaction="/dashboard/hoja-ruta.csv"

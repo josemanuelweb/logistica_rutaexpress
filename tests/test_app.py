@@ -314,3 +314,68 @@ def test_export_hoja_ruta_csv_respects_filters(app_client):
     csv_text = response.text
     assert "Cliente Ruta" in csv_text
     assert "Cliente Otro" not in csv_text
+
+
+def test_generate_route_for_conductor_orders_stops_and_saves_coords(app_client, monkeypatch):
+    client, main = app_client
+
+    conn = main.get_db()
+    conn.execute(
+        "INSERT INTO users (email, password) VALUES (?, ?)",
+        ("admin7@test.local", main.hash_password("adminpass")),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente 1", "111", "R1", "Dir A", "2026-03-03", "pendiente", 1),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente 2", "222", "R2", "Dir B", "2026-03-03", "pendiente", 1),
+    )
+    conn.commit()
+    conn.close()
+
+    coords = {
+        "Dir A": (-34.6000, -58.3800),
+        "Dir B": (-34.7000, -58.5000),
+    }
+
+    monkeypatch.setattr(main, "geocode_address", lambda address: coords.get(address))
+    monkeypatch.setattr(
+        main,
+        "build_batched_road_route",
+        lambda route_coords: {
+            "path": [[lat, lng] for lat, lng in route_coords],
+            "distance_km": 22.5,
+            "duration_min": 48.0,
+        },
+    )
+
+    client.post(
+        "/login",
+        data={"email": "admin7@test.local", "password": "adminpass"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/conductores/1/ruta?fecha=2026-03-03", follow_redirects=False)
+    assert response.status_code == 200
+    assert "Ruta optimizada" in response.text
+    assert "Cliente 1" in response.text
+    assert "Cliente 2" in response.text
+    assert "Tiempo estimado" in response.text
+
+    check_conn = main.get_db()
+    saved = check_conn.execute(
+        "SELECT COUNT(*) AS qty FROM envios WHERE fecha = ? AND conductor_id = ? AND entrega_lat IS NOT NULL AND entrega_lng IS NOT NULL",
+        ("2026-03-03", 1),
+    ).fetchone()
+    check_conn.close()
+    assert saved["qty"] >= 2

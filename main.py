@@ -1,10 +1,15 @@
 import hashlib
 import hmac
 import io
+import json
+import math
 import os
 import sqlite3
 from csv import writer
 from datetime import date, datetime
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlencode
+from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -83,6 +88,151 @@ def normalize_date_or_today(raw_date: str) -> str:
         return today_iso()
 
 
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return radius * c
+
+
+def optimize_order(
+    points: List[Dict[str, object]], origin_lat: float, origin_lng: float
+) -> List[Dict[str, object]]:
+    remaining = points[:]
+    ordered = []
+    current_lat = origin_lat
+    current_lng = origin_lng
+
+    while remaining:
+        next_point = min(
+            remaining,
+            key=lambda p: haversine_km(current_lat, current_lng, p["lat"], p["lng"]),
+        )
+        ordered.append(next_point)
+        remaining.remove(next_point)
+        current_lat = next_point["lat"]
+        current_lng = next_point["lng"]
+
+    return ordered
+
+
+def geocode_address(address: str) -> Optional[Tuple[float, float]]:
+    query = address.strip()
+    if not query:
+        return None
+
+    params = urlencode({"q": query, "format": "json", "limit": 1})
+    url = f"https://nominatim.openstreetmap.org/search?{params}"
+    http_req = UrlRequest(
+        url,
+        headers={"User-Agent": "RutaExpressBA/1.0 (logistica local)"},
+    )
+    try:
+        request = urlopen(http_req, timeout=8)
+        content = request.read().decode("utf-8")
+        rows = json.loads(content)
+    except Exception:
+        return None
+    if not rows:
+        return None
+
+    try:
+        lat = float(rows[0]["lat"])
+        lng = float(rows[0]["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (lat, lng)
+
+
+def build_straight_route(coords: List[Tuple[float, float]]) -> Dict[str, object]:
+    if len(coords) < 2:
+        return {"path": [[lat, lng] for lat, lng in coords], "distance_km": 0.0, "duration_min": 0.0}
+
+    total_km = 0.0
+    for idx in range(1, len(coords)):
+        total_km += haversine_km(
+            coords[idx - 1][0], coords[idx - 1][1], coords[idx][0], coords[idx][1]
+        )
+
+    # Velocidad promedio simple para estimar.
+    duration_min = (total_km / 30.0) * 60.0 if total_km > 0 else 0.0
+    return {
+        "path": [[lat, lng] for lat, lng in coords],
+        "distance_km": round(total_km, 2),
+        "duration_min": round(duration_min, 1),
+    }
+
+
+def request_osrm_route(coords: List[Tuple[float, float]]) -> Optional[Dict[str, object]]:
+    if len(coords) < 2:
+        return {"path": [[lat, lng] for lat, lng in coords], "distance_km": 0.0, "duration_min": 0.0}
+
+    coordinate_text = ";".join(f"{lng},{lat}" for lat, lng in coords)
+    url = (
+        "https://router.project-osrm.org/route/v1/driving/"
+        + coordinate_text
+        + "?overview=full&geometries=geojson&steps=false"
+    )
+
+    try:
+        request = UrlRequest(url, headers={"User-Agent": "RutaExpressBA/1.0 (routing)"})
+        raw = urlopen(request, timeout=12).read().decode("utf-8")
+        payload = json.loads(raw)
+        route = payload["routes"][0]
+        coords_geojson = route["geometry"]["coordinates"]
+    except Exception:
+        return None
+
+    path = [[float(item[1]), float(item[0])] for item in coords_geojson]
+    distance_km = round(float(route.get("distance", 0.0)) / 1000.0, 2)
+    duration_min = round(float(route.get("duration", 0.0)) / 60.0, 1)
+    return {"path": path, "distance_km": distance_km, "duration_min": duration_min}
+
+
+def build_batched_road_route(coords: List[Tuple[float, float]]) -> Dict[str, object]:
+    if len(coords) < 2:
+        return build_straight_route(coords)
+
+    max_points = 25
+    stitched_path: List[List[float]] = []
+    total_km = 0.0
+    total_min = 0.0
+    start = 0
+
+    while start < len(coords) - 1:
+        end = min(start + max_points - 1, len(coords) - 1)
+        segment_coords = coords[start : end + 1]
+        road = request_osrm_route(segment_coords)
+        if road is None:
+            road = build_straight_route(segment_coords)
+
+        segment_path = road["path"]  # type: ignore[index]
+        if stitched_path and segment_path:
+            if stitched_path[-1] == segment_path[0]:
+                stitched_path.extend(segment_path[1:])
+            else:
+                stitched_path.extend(segment_path)
+        else:
+            stitched_path.extend(segment_path)
+
+        total_km += float(road["distance_km"])  # type: ignore[index]
+        total_min += float(road["duration_min"])  # type: ignore[index]
+        start = end
+
+    return {
+        "path": stitched_path,
+        "distance_km": round(total_km, 2),
+        "duration_min": round(total_min, 1),
+    }
+
+
 def init_db():
     conn = get_db()
 
@@ -115,6 +265,8 @@ def init_db():
     direccion_retiro TEXT,
     direccion_entrega TEXT,
     fecha TEXT,
+    entrega_lat REAL,
+    entrega_lng REAL,
     estado TEXT,
     conductor_id INTEGER
     )
@@ -128,6 +280,10 @@ def init_db():
         conn.execute("ALTER TABLE envios ADD COLUMN conductor_id INTEGER")
     if "fecha" not in columnas_envios:
         conn.execute("ALTER TABLE envios ADD COLUMN fecha TEXT")
+    if "entrega_lat" not in columnas_envios:
+        conn.execute("ALTER TABLE envios ADD COLUMN entrega_lat REAL")
+    if "entrega_lng" not in columnas_envios:
+        conn.execute("ALTER TABLE envios ADD COLUMN entrega_lng REAL")
 
     conn.execute(
         "UPDATE envios SET fecha = ? WHERE fecha IS NULL OR fecha = ''",
@@ -444,6 +600,115 @@ def eliminar_conductor(request: Request, conductor_id: int):
     conn.close()
 
     return RedirectResponse("/conductores", status_code=303)
+
+
+@app.get("/conductores/{conductor_id}/ruta", response_class=HTMLResponse)
+def ruta_conductor(
+    request: Request,
+    conductor_id: int,
+    fecha: str = "",
+    estado: str = "",
+):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    fecha_filtro = normalize_date_or_today(fecha)
+    estado_normalizado = estado.strip().lower().replace(" ", "_")
+
+    conn = get_db()
+    conductor = conn.execute(
+        "SELECT id, nombre, telefono FROM conductores WHERE id = ?", (conductor_id,)
+    ).fetchone()
+    if not conductor:
+        conn.close()
+        return RedirectResponse("/dashboard", status_code=303)
+
+    filtros = ["conductor_id = ?", "fecha = ?"]
+    params: list[object] = [conductor_id, fecha_filtro]
+    if estado_normalizado in ESTADOS_VALIDOS:
+        filtros.append("estado = ?")
+        params.append(estado_normalizado)
+
+    sql = """
+        SELECT id, cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, entrega_lat, entrega_lng
+        FROM envios
+    """
+    sql += " WHERE " + " AND ".join(filtros)
+    sql += " ORDER BY id DESC"
+    envios = conn.execute(sql, params).fetchall()
+
+    unresolved = []
+    points = []
+    for envio in envios:
+        lat = envio["entrega_lat"]
+        lng = envio["entrega_lng"]
+        if lat is None or lng is None:
+            coords = geocode_address(envio["direccion_entrega"])
+            if coords:
+                lat, lng = coords
+                conn.execute(
+                    "UPDATE envios SET entrega_lat = ?, entrega_lng = ? WHERE id = ?",
+                    (lat, lng, envio["id"]),
+                )
+            else:
+                unresolved.append(envio["direccion_entrega"])
+                continue
+
+        points.append(
+            {
+                "id": envio["id"],
+                "cliente": envio["cliente"],
+                "telefono": envio["telefono"],
+                "direccion_retiro": envio["direccion_retiro"],
+                "direccion_entrega": envio["direccion_entrega"],
+                "estado": envio["estado"],
+                "fecha": envio["fecha"],
+                "lat": float(lat),
+                "lng": float(lng),
+            }
+        )
+
+    conn.commit()
+    conn.close()
+
+    origen_lat = -34.6037
+    origen_lng = -58.3816
+    ordered = optimize_order(points, origen_lat, origen_lng) if points else []
+
+    prev_lat = origen_lat
+    prev_lng = origen_lng
+    for stop in ordered:
+        hop = haversine_km(prev_lat, prev_lng, stop["lat"], stop["lng"])
+        stop["km_desde_anterior"] = round(hop, 2)
+        prev_lat = stop["lat"]
+        prev_lng = stop["lng"]
+
+    road_coords = [(origen_lat, origen_lng)] + [
+        (float(stop["lat"]), float(stop["lng"])) for stop in ordered
+    ]
+    road_route = build_batched_road_route(road_coords)
+    route_path = road_route["path"]
+    total_km = float(road_route["distance_km"])
+    total_min = float(road_route["duration_min"])
+
+    return templates.TemplateResponse(
+        "ruta_conductor.html",
+        {
+            "request": request,
+            "conductor": conductor,
+            "fecha_filtro": fecha_filtro,
+            "estado_filtro": estado_normalizado if estado_normalizado in ESTADOS_VALIDOS else "",
+            "stops": ordered,
+            "unresolved": unresolved,
+            "total_km": round(total_km, 2),
+            "total_min": round(total_min, 1),
+            "route_path": route_path,
+            "usuario_email": request.session.get("user_email", ""),
+            "origen_lat": origen_lat,
+            "origen_lng": origen_lng,
+        },
+    )
 
 
 @app.get("/nuevo-envio", response_class=HTMLResponse)

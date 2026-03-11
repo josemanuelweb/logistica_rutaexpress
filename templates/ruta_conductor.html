@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ruta optimizada | Ruta Express BA</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+</head>
+<body>
+  <main class="container">
+    <section class="card dashboard-head">
+      <div>
+        <p class="eyebrow">Ruteo</p>
+        <h2>Ruta optimizada de {{ conductor.nombre }}</h2>
+        <p class="muted">Fecha: {{ fecha_filtro }} | Distancia estimada: {{ total_km }} km | Tiempo estimado: {{ total_min }} min</p>
+        <p class="muted">Sesión: {{ usuario_email }}</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/dashboard?fecha={{ fecha_filtro }}&conductor={{ conductor.id }}&estado={{ estado_filtro }}">Volver al panel</a>
+        <a class="btn btn-secondary" href="/logout">Salir</a>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div id="mapa-ruta" class="map-box" style="height: 420px; min-height: 420px;"></div>
+      {% if stops|length == 0 %}
+      <p class="empty-state">No hay paradas geocodificadas para esta combinación de filtros.</p>
+      {% endif %}
+      {% if unresolved|length > 0 %}
+      <p class="empty-state">Direcciones sin coordenadas: {{ unresolved|join(', ') }}</p>
+      {% endif %}
+    </section>
+
+    <section class="card table-card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Orden</th>
+              <th>ID</th>
+              <th>Cliente</th>
+              <th>Entrega</th>
+              <th>Estado</th>
+              <th>Km tramo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for stop in stops %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>#{{ stop.id }}</td>
+              <td>{{ stop.cliente }}</td>
+              <td>{{ stop.direccion_entrega }}</td>
+              <td>
+                <span class="badge badge-{{ stop.estado|lower|replace(' ', '_') }}">
+                  {{ stop.estado|replace('_', ' ')|title }}
+                </span>
+              </td>
+              <td>{{ stop.km_desde_anterior }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+    if (typeof L === 'undefined') {
+      document.getElementById('mapa-ruta').innerHTML = 'No se pudo cargar el mapa (Leaflet no disponible).';
+      return;
+    }
+    const origin = { lat: {{ origen_lat }}, lng: {{ origen_lng }} };
+    const stops = {{ stops|tojson }};
+    const routePath = {{ route_path|tojson }};
+
+    const map = L.map('mapa-ruta').setView([origin.lat, origin.lng], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    L.marker([origin.lat, origin.lng]).addTo(map).bindPopup('Origen sugerido (centro CABA)');
+
+    stops.forEach((stop, index) => {
+      const point = [stop.lat, stop.lng];
+      L.marker(point).addTo(map).bindPopup(`#${index + 1} - ${stop.cliente}<br>${stop.direccion_entrega}`);
+    });
+
+    if (routePath.length > 1) {
+      const polyline = L.polyline(routePath, { color: '#0a84ff', weight: 4 }).addTo(map);
+      map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    } else if (stops.length > 0) {
+      const fallback = [[origin.lat, origin.lng]].concat(stops.map(s => [s.lat, s.lng]));
+      const polyline = L.polyline(fallback, { color: '#0a84ff', weight: 4 }).addTo(map);
+      map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    }
+    setTimeout(() => map.invalidateSize(), 0);
+    });
+  </script>
+</body>
+</html>
