@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nuevo Envío | Ruta Express BA</title>
+  <title>Nuevo envío | Ruta Express BA</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -32,12 +32,7 @@
           <input name="telefono" placeholder="Ej: +54 11 5555 5555" required>
         </div>
 
-        <div>
-          <label>Dirección de retiro</label>
-          <input name="direccion_retiro" placeholder="Ej: Av. Corrientes 1234" required>
-        </div>
-
-        <div>
+        <div class="full-col">
           <label>Dirección de entrega</label>
           <input name="direccion_entrega" placeholder="Ej: Cabildo 2000" required>
         </div>
@@ -47,7 +42,7 @@
           <input type="date" name="fecha" value="{{ fecha_hoy }}" required>
         </div>
 
-        <div class="full-col">
+        <div>
           <label>Conductor asignado</label>
           <select name="conductor_id" class="status-select" required>
             {% for conductor in conductores %}

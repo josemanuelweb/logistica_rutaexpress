@@ -22,13 +22,57 @@
       </div>
     </section>
 
+    <section class="stats-grid">
+      <article class="card stat-item">
+        <p>Total envíos</p>
+        <h3>{{ metricas.total_envios }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Entregados</p>
+        <h3>{{ metricas.total_entregados }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>En ruta</p>
+        <h3>{{ metricas.total_en_ruta }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Pendientes</p>
+        <h3>{{ metricas.total_pendientes }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Conductores activos</p>
+        <h3>{{ metricas.conductores_activos }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Promedio entrega</p>
+        <h3>{% if metricas.promedio_entrega_min is not none %}{{ metricas.promedio_entrega_min }} min{% else %}-{% endif %}</h3>
+      </article>
+    </section>
+
     <section class="card table-card">
-      <form method="get" action="/dashboard" class="filters-bar">
+      <form method="get" action="/dashboard" class="filters-bar" id="dashboard-filters">
         <input
           type="date"
           name="fecha"
           value="{{ filtro_fecha }}"
           class="status-select"
+          title="Fecha exacta"
+        >
+
+        <input
+          type="date"
+          name="desde"
+          value="{{ filtro_desde }}"
+          class="status-select"
+          title="Desde"
+        >
+
+        <input
+          type="date"
+          name="hasta"
+          value="{{ filtro_hasta }}"
+          class="status-select"
+          title="Hasta"
         >
 
         <input
@@ -53,14 +97,20 @@
           {% endfor %}
         </select>
 
+        <input type="hidden" name="origen_lat" id="origen-lat">
+        <input type="hidden" name="origen_lng" id="origen-lng">
+
         <button type="submit" class="btn btn-primary">Filtrar</button>
         {% if filtro_conductor %}
-        <a
-          href="/conductores/{{ filtro_conductor }}/ruta?fecha={{ filtro_fecha }}&estado={{ filtro_estado }}"
+        <button
+          type="submit"
+          formaction="/conductores/{{ filtro_conductor }}/ruta"
+          formmethod="get"
           class="btn btn-secondary"
+          id="btn-generar-ruta"
         >
           Generar ruta en mapa
-        </a>
+        </button>
         {% endif %}
         <button
           type="submit"
@@ -72,6 +122,8 @@
         </button>
         <a href="/dashboard" class="btn btn-secondary">Limpiar</a>
       </form>
+
+      <p class="empty-state">Usá fecha exacta para un día puntual, o desde/hasta para métricas y seguimiento por rango.</p>
 
       <div class="table-wrap">
         <table>
@@ -85,7 +137,6 @@
               <th>Entrega</th>
               <th>Conductor</th>
               <th>Estado</th>
-              <th>Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -103,16 +154,6 @@
                   {{ envio.estado|replace('_', ' ')|title }}
                 </span>
               </td>
-              <td>
-                <form method="post" action="/envio/{{ envio.id }}/estado" class="status-form">
-                  <select name="estado" class="status-select">
-                    <option value="pendiente" {% if envio.estado == "pendiente" %}selected{% endif %}>Pendiente</option>
-                    <option value="en_ruta" {% if envio.estado == "en_ruta" %}selected{% endif %}>En ruta</option>
-                    <option value="entregado" {% if envio.estado == "entregado" %}selected{% endif %}>Entregado</option>
-                  </select>
-                  <button type="submit" class="btn btn-mini">Guardar</button>
-                </form>
-              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -122,7 +163,61 @@
       {% if envios|length == 0 %}
       <p class="empty-state">No hay envíos que coincidan con el filtro aplicado.</p>
       {% endif %}
+      {% if filtro_conductor %}
+      <p class="empty-state" id="geo-status">La ruta usa tu ubicación actual si el navegador la autoriza. Si no, usa un origen sugerido en CABA.</p>
+      {% endif %}
     </section>
   </main>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      const routeButton = document.getElementById('btn-generar-ruta');
+      const latInput = document.getElementById('origen-lat');
+      const lngInput = document.getElementById('origen-lng');
+      const status = document.getElementById('geo-status');
+
+      if (!routeButton || !latInput || !lngInput) {
+        return;
+      }
+
+      routeButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        latInput.value = '';
+        lngInput.value = '';
+
+        const submitRoute = function () {
+          routeButton.form.requestSubmit(routeButton);
+        };
+
+        if (!navigator.geolocation) {
+          if (status) {
+            status.textContent = 'Tu navegador no expone geolocalización. Se usará el origen sugerido en CABA.';
+          }
+          submitRoute();
+          return;
+        }
+
+        routeButton.disabled = true;
+        routeButton.textContent = 'Ubicando...';
+
+        navigator.geolocation.getCurrentPosition(
+          function (position) {
+            latInput.value = String(position.coords.latitude);
+            lngInput.value = String(position.coords.longitude);
+            if (status) {
+              status.textContent = 'Ubicación actual detectada. Generando ruta desde ese punto.';
+            }
+            submitRoute();
+          },
+          function () {
+            if (status) {
+              status.textContent = 'No se pudo obtener tu ubicación. Se usará el origen sugerido en CABA.';
+            }
+            submitRoute();
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        );
+      });
+    });
+  </script>
 </body>
 </html>

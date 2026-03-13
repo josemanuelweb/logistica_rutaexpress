@@ -9,21 +9,118 @@
 </head>
 <body>
   <main class="container">
+    {% set active_stop = stops|selectattr("estado", "equalto", "en_ruta")|list|first %}
+    {% set pending_stops = stops|selectattr("estado", "equalto", "pendiente")|list %}
+    {% set next_stop = pending_stops|first %}
+    {% set delivered_stops = stops|selectattr("estado", "equalto", "entregado")|list %}
+
     <section class="card dashboard-head">
       <div>
         <p class="eyebrow">Ruteo</p>
         <h2>Ruta optimizada de {{ conductor.nombre }}</h2>
         <p class="muted">Fecha: {{ fecha_filtro }} | Distancia estimada: {{ total_km }} km | Tiempo estimado: {{ total_min }} min</p>
+        <p class="muted">Origen de partida: {{ origin_label }}</p>
         <p class="muted">Sesión: {{ usuario_email }}</p>
       </div>
       <div class="actions">
+        {% if stops|length > 0 and not active_stop %}
+        <form method="post" action="/conductores/{{ conductor.id }}/ruta/iniciar">
+          <input type="hidden" name="fecha" value="{{ fecha_filtro }}">
+          <input type="hidden" name="origen_lat" value="{{ origen_lat }}">
+          <input type="hidden" name="origen_lng" value="{{ origen_lng }}">
+          <button type="submit" class="btn btn-primary">Iniciar ruta</button>
+        </form>
+        {% endif %}
         <a class="btn btn-secondary" href="/dashboard?fecha={{ fecha_filtro }}&conductor={{ conductor.id }}&estado={{ estado_filtro }}">Volver al panel</a>
         <a class="btn btn-secondary" href="/logout">Salir</a>
       </div>
     </section>
 
+    <section class="route-focus-grid">
+      <article class="card route-focus-card route-focus-active">
+        <p class="eyebrow">Parada actual</p>
+        {% if active_stop %}
+        <h3>{{ active_stop.cliente }}</h3>
+        <p class="route-address">{{ active_stop.direccion_entrega }}</p>
+        <p class="muted">Pedido #{{ active_stop.id }} | Tramo: {{ active_stop.km_desde_anterior }} km</p>
+        {% if active_stop.en_ruta_at %}
+        <p class="muted">En ruta desde: {{ active_stop.en_ruta_at }}</p>
+        {% endif %}
+        <form method="post" action="/conductores/{{ conductor.id }}/ruta/{{ active_stop.id }}/entregado">
+          <input type="hidden" name="fecha" value="{{ fecha_filtro }}">
+          <input type="hidden" name="origen_lat" value="{{ origen_lat }}">
+          <input type="hidden" name="origen_lng" value="{{ origen_lng }}">
+          <button type="submit" class="btn btn-success">Entregado y seguir</button>
+        </form>
+        {% else %}
+        <h3>Ruta sin iniciar</h3>
+        <p class="muted">Todavía no hay una parada en curso para este conductor.</p>
+        {% endif %}
+      </article>
+
+      <article class="card route-focus-card">
+        <p class="eyebrow">Siguiente</p>
+        {% if next_stop %}
+        <h3>{{ next_stop.cliente }}</h3>
+        <p class="route-address">{{ next_stop.direccion_entrega }}</p>
+        <p class="muted">Pedido #{{ next_stop.id }} | Tramo estimado: {{ next_stop.km_desde_anterior }} km</p>
+        {% else %}
+        <h3>Sin pendientes</h3>
+        <p class="muted">No quedan entregas pendientes para esta ruta.</p>
+        {% endif %}
+      </article>
+
+      <article class="card route-focus-card">
+        <p class="eyebrow">Completadas</p>
+        <h3>{{ delivered_stops|length }} entregas</h3>
+        {% if delivered_stops %}
+        <ul class="route-mini-list">
+          {% for stop in delivered_stops[:3] %}
+          <li>#{{ stop.id }} - {{ stop.cliente }}{% if stop.entregado_at %} | {{ stop.entregado_at }}{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% if delivered_stops|length > 3 %}
+        <p class="muted">y {{ delivered_stops|length - 3 }} más</p>
+        {% endif %}
+        {% else %}
+        <p class="muted">Todavía no hay entregas completadas en esta ruta.</p>
+        {% endif %}
+      </article>
+    </section>
+
+    <section class="card route-driver-banner">
+      {% if active_stop %}
+      <div>
+        <p class="eyebrow">Modo chofer</p>
+        <h3>Ir a {{ active_stop.direccion_entrega }}</h3>
+        <p class="muted">Cliente: {{ active_stop.cliente }} | Pedido #{{ active_stop.id }}</p>
+        <p class="muted route-desktop-hint" id="route-desktop-hint" hidden>Auto-Waze disponible solo en móvil. En escritorio usá el botón manual.</p>
+      </div>
+      <div class="actions">
+        <a
+          class="btn btn-secondary"
+          href="https://www.waze.com/ul?ll={{ active_stop.lat }},{{ active_stop.lng }}&navigate=yes"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Abrir en Waze
+        </a>
+      </div>
+      {% else %}
+      <div>
+        <p class="eyebrow">Modo chofer</p>
+        <h3>Ruta preparada</h3>
+        <p class="muted">Iniciá la ruta para activar la primera entrega y navegación guiada.</p>
+      </div>
+      {% endif %}
+    </section>
+
     <section class="card table-card">
       <div id="mapa-ruta" class="map-box" style="height: 420px; min-height: 420px;"></div>
+      <div class="route-legend">
+        <span class="route-legend-item"><span class="route-dot route-dot-origin"></span> Punto de partida</span>
+        <span class="route-legend-item"><span class="route-dot route-dot-stop"></span> Entregas</span>
+      </div>
       {% if stops|length == 0 %}
       <p class="empty-state">No hay paradas geocodificadas para esta combinación de filtros.</p>
       {% endif %}
@@ -42,7 +139,9 @@
               <th>Cliente</th>
               <th>Entrega</th>
               <th>Estado</th>
+              <th>Tiempo</th>
               <th>Km tramo</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -57,7 +156,25 @@
                   {{ stop.estado|replace('_', ' ')|title }}
                 </span>
               </td>
+              <td>
+                {% if stop.estado == "en_ruta" and stop.en_ruta_at %}
+                <span class="muted">Desde {{ stop.en_ruta_at }}</span>
+                {% elif stop.estado == "entregado" and stop.entregado_at %}
+                <span class="muted">Entregado {{ stop.entregado_at }}</span>
+                {% else %}
+                <span class="muted">Sin registro</span>
+                {% endif %}
+              </td>
               <td>{{ stop.km_desde_anterior }}</td>
+              <td>
+                {% if stop.estado == "en_ruta" %}
+                <span class="muted">Parada actual</span>
+                {% elif stop.estado == "entregado" %}
+                <span class="muted">Completado</span>
+                {% else %}
+                <span class="muted">En espera</span>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -69,36 +186,76 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
     window.addEventListener('DOMContentLoaded', function () {
-    if (typeof L === 'undefined') {
-      document.getElementById('mapa-ruta').innerHTML = 'No se pudo cargar el mapa (Leaflet no disponible).';
-      return;
-    }
-    const origin = { lat: {{ origen_lat }}, lng: {{ origen_lng }} };
-    const stops = {{ stops|tojson }};
-    const routePath = {{ route_path|tojson }};
+      const activeStop = {{ active_stop|tojson if active_stop else 'null' }};
+      const autoWaze = {{ auto_waze|tojson }};
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+      const desktopHint = document.getElementById('route-desktop-hint');
 
-    const map = L.map('mapa-ruta').setView([origin.lat, origin.lng], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+      if (desktopHint && !isMobile) {
+        desktopHint.hidden = false;
+      }
 
-    L.marker([origin.lat, origin.lng]).addTo(map).bindPopup('Origen sugerido (centro CABA)');
+      if (autoWaze && activeStop && isMobile) {
+        const wazeUrl = `https://www.waze.com/ul?ll=${activeStop.lat},${activeStop.lng}&navigate=yes`;
+        const statusBanner = document.createElement('div');
+        statusBanner.className = 'card route-driver-banner';
+        statusBanner.innerHTML = '<div><p class="eyebrow">Navegación</p><h3>Abriendo Waze</h3><p class="muted">Si no se abre automáticamente, usá el botón "Abrir en Waze".</p></div>';
+        const container = document.querySelector('.container');
+        if (container) {
+          container.insertBefore(statusBanner, container.firstChild);
+        }
+        window.open(wazeUrl, '_blank', 'noopener,noreferrer');
+      }
 
-    stops.forEach((stop, index) => {
-      const point = [stop.lat, stop.lng];
-      L.marker(point).addTo(map).bindPopup(`#${index + 1} - ${stop.cliente}<br>${stop.direccion_entrega}`);
-    });
+      if (typeof L === 'undefined') {
+        document.getElementById('mapa-ruta').innerHTML = 'No se pudo cargar el mapa (Leaflet no disponible).';
+        return;
+      }
+      const origin = { lat: {{ origen_lat }}, lng: {{ origen_lng }} };
+      const stops = {{ stops|tojson }};
+      const routePath = {{ route_path|tojson }};
 
-    if (routePath.length > 1) {
-      const polyline = L.polyline(routePath, { color: '#0a84ff', weight: 4 }).addTo(map);
-      map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-    } else if (stops.length > 0) {
-      const fallback = [[origin.lat, origin.lng]].concat(stops.map(s => [s.lat, s.lng]));
-      const polyline = L.polyline(fallback, { color: '#0a84ff', weight: 4 }).addTo(map);
-      map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-    }
-    setTimeout(() => map.invalidateSize(), 0);
+      const map = L.map('mapa-ruta').setView([origin.lat, origin.lng], 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      L.circleMarker([origin.lat, origin.lng], {
+        radius: 10,
+        color: '#d94b2b',
+        weight: 3,
+        fillColor: '#ff8c42',
+        fillOpacity: 0.95
+      }).addTo(map).bindPopup({{ origin_label|tojson }});
+
+      stops.forEach((stop, index) => {
+        const point = [stop.lat, stop.lng];
+        const marker = L.marker(point, {
+          icon: L.divIcon({
+            className: 'route-stop-marker',
+            html: `
+              <div class="route-stop-pin ${stop.estado}">
+                <span>${index + 1}</span>
+              </div>
+            `,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+            popupAnchor: [0, -12]
+          })
+        }).addTo(map);
+        marker.bindPopup(`#${index + 1} - ${stop.cliente}<br>${stop.direccion_entrega}`);
+      });
+
+      if (routePath.length > 1) {
+        const polyline = L.polyline(routePath, { color: '#0a84ff', weight: 4 }).addTo(map);
+        map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+      } else if (stops.length > 0) {
+        const fallback = [[origin.lat, origin.lng]].concat(stops.map(s => [s.lat, s.lng]));
+        const polyline = L.polyline(fallback, { color: '#0a84ff', weight: 4 }).addTo(map);
+        map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+      }
+      setTimeout(() => map.invalidateSize(), 0);
     });
   </script>
 </body>
