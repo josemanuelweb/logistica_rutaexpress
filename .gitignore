@@ -6,6 +6,8 @@ database.db
 .pytest_cache/
 .run/
 .tmp_test/
+.tmp-test/
+.tmp_test_run/
 qa_flow.db
 qa_routes.db
 pytest-cache-files-*

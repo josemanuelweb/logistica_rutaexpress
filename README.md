@@ -31,6 +31,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Migracion a Mac
+
+Version recomendada para retomar en la Mac:
+
+- branch: `prueba-cambio-general`
+- tag: `v0.2.0`
+
+Clonado rapido:
+
+```bash
+git clone https://github.com/josemanuelweb/logistica_rutaexpress.git
+cd logistica_rutaexpress
+git fetch --tags
+git checkout prueba-cambio-general
+```
+
 ## Ejecucion local
 
 ```bash
@@ -48,7 +64,7 @@ La aplicacion queda disponible en `http://127.0.0.1:8000`.
 ## Testing
 
 ```bash
-pytest
+python -m pytest
 ```
 
 ## Rutas principales
