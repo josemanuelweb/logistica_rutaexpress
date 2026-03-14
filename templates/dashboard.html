@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard | Ruta Express BA</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Operaciones | NexoRuta</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260314-1">
 </head>
 <body>
-  <main class="container">
-    <section class="card dashboard-head">
+  <div class="bg-grid"></div>
+  <main class="container app-shell">
+    <section class="control-bar card">
       <div>
-        <p class="eyebrow">Control operativo</p>
+        <p class="eyebrow">NexoRuta</p>
         <h2>Panel de envíos</h2>
         <p class="muted">Sesión: {{ usuario_email }}</p>
       </div>
@@ -22,7 +23,25 @@
       </div>
     </section>
 
-    <section class="stats-grid">
+    <section class="module-strip">
+      <article class="card strip-card strip-live">
+        <p class="eyebrow">Operaciones</p>
+        <h3>Pedidos activos</h3>
+        <p>Vista operativa del día, seguimiento y consolidación por rango.</p>
+      </article>
+      <article class="card strip-card">
+        <p class="eyebrow">Planificación</p>
+        <h3>Rutas y hoja diaria</h3>
+        <p>Generación de mapa por conductor y salida desde ubicación real.</p>
+      </article>
+      <article class="card strip-card">
+        <p class="eyebrow">Analítica</p>
+        <h3>Histórico y rendimiento</h3>
+        <p>Promedios, volumen y estado operativo del período consultado.</p>
+      </article>
+    </section>
+
+    <section class="stats-grid stats-grid-wide">
       <article class="card stat-item">
         <p>Total envíos</p>
         <h3>{{ metricas.total_envios }}</h3>
@@ -43,87 +62,95 @@
         <p>Conductores activos</p>
         <h3>{{ metricas.conductores_activos }}</h3>
       </article>
-      <article class="card stat-item">
-        <p>Promedio entrega</p>
+      <article class="card stat-item stat-highlight">
+        <p>Promedio de entrega</p>
         <h3>{% if metricas.promedio_entrega_min is not none %}{{ metricas.promedio_entrega_min }} min{% else %}-{% endif %}</h3>
       </article>
     </section>
 
-    <section class="card table-card">
-      <form method="get" action="/dashboard" class="filters-bar" id="dashboard-filters">
-        <input
-          type="date"
-          name="fecha"
-          value="{{ filtro_fecha }}"
-          class="status-select"
-          title="Fecha exacta"
-        >
+    <section class="card workspace-card">
+      <div class="workspace-head">
+        <div>
+          <p class="eyebrow">Consulta operativa</p>
+          <h3>Pedidos, rangos y rutas</h3>
+        </div>
+        <p class="muted">Usá fecha exacta para un día puntual o desde/hasta para cierres semanales y mensuales.</p>
+      </div>
 
-        <input
-          type="date"
-          name="desde"
-          value="{{ filtro_desde }}"
-          class="status-select"
-          title="Desde"
-        >
+      <form method="get" action="/dashboard" class="filters-bar filters-grid" id="dashboard-filters">
+        <label class="filter-block">
+          <span>Fecha</span>
+          <input type="date" name="fecha" value="{{ filtro_fecha }}" class="status-select" title="Fecha exacta">
+        </label>
 
-        <input
-          type="date"
-          name="hasta"
-          value="{{ filtro_hasta }}"
-          class="status-select"
-          title="Hasta"
-        >
+        <label class="filter-block">
+          <span>Desde</span>
+          <input type="date" name="desde" value="{{ filtro_desde }}" class="status-select" title="Desde">
+        </label>
 
-        <input
-          type="text"
-          name="q"
-          value="{{ filtro_q }}"
-          placeholder="Buscar por cliente o teléfono"
-          class="filter-input"
-        >
+        <label class="filter-block">
+          <span>Hasta</span>
+          <input type="date" name="hasta" value="{{ filtro_hasta }}" class="status-select" title="Hasta">
+        </label>
 
-        <select name="estado" class="status-select">
-          <option value="" {% if filtro_estado == "" %}selected{% endif %}>Todos los estados</option>
-          <option value="pendiente" {% if filtro_estado == "pendiente" %}selected{% endif %}>Pendiente</option>
-          <option value="en_ruta" {% if filtro_estado == "en_ruta" %}selected{% endif %}>En ruta</option>
-          <option value="entregado" {% if filtro_estado == "entregado" %}selected{% endif %}>Entregado</option>
-        </select>
+        <label class="filter-block filter-search">
+          <span>Búsqueda</span>
+          <input
+            type="text"
+            name="q"
+            value="{{ filtro_q }}"
+            placeholder="Cliente o teléfono"
+            class="filter-input"
+          >
+        </label>
 
-        <select name="conductor" class="status-select">
-          <option value="">Todos los conductores</option>
-          {% for conductor in conductores %}
-          <option value="{{ conductor.id }}" {% if filtro_conductor == conductor.id %}selected{% endif %}>{{ conductor.nombre }}</option>
-          {% endfor %}
-        </select>
+        <label class="filter-block">
+          <span>Estado</span>
+          <select name="estado" class="status-select">
+            <option value="" {% if filtro_estado == "" %}selected{% endif %}>Todos los estados</option>
+            <option value="pendiente" {% if filtro_estado == "pendiente" %}selected{% endif %}>Pendiente</option>
+            <option value="en_ruta" {% if filtro_estado == "en_ruta" %}selected{% endif %}>En ruta</option>
+            <option value="entregado" {% if filtro_estado == "entregado" %}selected{% endif %}>Entregado</option>
+          </select>
+        </label>
+
+        <label class="filter-block">
+          <span>Conductor</span>
+          <select name="conductor" class="status-select">
+            <option value="">Todos los conductores</option>
+            {% for conductor in conductores %}
+            <option value="{{ conductor.id }}" {% if filtro_conductor == conductor.id %}selected{% endif %}>{{ conductor.nombre }}</option>
+            {% endfor %}
+          </select>
+        </label>
 
         <input type="hidden" name="origen_lat" id="origen-lat">
         <input type="hidden" name="origen_lng" id="origen-lng">
 
-        <button type="submit" class="btn btn-primary">Filtrar</button>
-        {% if filtro_conductor %}
-        <button
-          type="submit"
-          formaction="/conductores/{{ filtro_conductor }}/ruta"
-          formmethod="get"
-          class="btn btn-secondary"
-          id="btn-generar-ruta"
-        >
-          Generar ruta en mapa
-        </button>
-        {% endif %}
-        <button
-          type="submit"
-          formaction="/dashboard/hoja-ruta.csv"
-          formmethod="get"
-          class="btn btn-secondary"
-        >
-          Descargar hoja de ruta
-        </button>
-        <a href="/dashboard" class="btn btn-secondary">Limpiar</a>
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary">Aplicar filtros</button>
+          {% if filtro_conductor %}
+          <button
+            type="submit"
+            formaction="/conductores/{{ filtro_conductor }}/ruta"
+            formmethod="get"
+            class="btn btn-secondary"
+            id="btn-generar-ruta"
+          >
+            Abrir planificación
+          </button>
+          {% endif %}
+          <button
+            type="submit"
+            formaction="/dashboard/hoja-ruta.csv"
+            formmethod="get"
+            class="btn btn-secondary"
+          >
+            Exportar CSV
+          </button>
+          <a href="/dashboard" class="btn btn-ghost">Resetear</a>
+        </div>
       </form>
-
-      <p class="empty-state">Usá fecha exacta para un día puntual, o desde/hasta para métricas y seguimiento por rango.</p>
 
       <div class="table-wrap">
         <table>
@@ -161,10 +188,10 @@
       </div>
 
       {% if envios|length == 0 %}
-      <p class="empty-state">No hay envíos que coincidan con el filtro aplicado.</p>
+      <p class="empty-state">No hay envíos que coincidan con el criterio operativo actual.</p>
       {% endif %}
       {% if filtro_conductor %}
-      <p class="empty-state" id="geo-status">La ruta usa tu ubicación actual si el navegador la autoriza. Si no, usa un origen sugerido en CABA.</p>
+      <p class="empty-state" id="geo-status">La planificación usa tu ubicación actual si el navegador la autoriza. Si no, usa un origen sugerido en CABA.</p>
       {% endif %}
     </section>
   </main>
@@ -204,7 +231,7 @@
             latInput.value = String(position.coords.latitude);
             lngInput.value = String(position.coords.longitude);
             if (status) {
-              status.textContent = 'Ubicación actual detectada. Generando ruta desde ese punto.';
+              status.textContent = 'Ubicación actual detectada. Generando planificación desde ese punto.';
             }
             submitRoute();
           },

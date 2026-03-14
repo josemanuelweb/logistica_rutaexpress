@@ -3,38 +3,106 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ruta Express BA</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>NexoRuta | Centro logistico</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260314-1">
 </head>
 <body>
-  <div class="bg-shape bg-shape-1"></div>
-  <div class="bg-shape bg-shape-2"></div>
+  <div class="bg-grid"></div>
+  <div class="glow glow-amber"></div>
+  <div class="glow glow-cyan"></div>
 
-  <main class="container hero">
-    <section class="card hero-card">
-      <p class="eyebrow">Logística Urbana</p>
-      <h1>Ruta Express BA</h1>
-      <p class="lead">Servicio de envíos rápidos en CABA y GBA, con control simple y ordenado de cada entrega.</p>
+  <main class="container landing-shell">
+    <section class="hero-panel">
+      <div class="hero-copy">
+        <p class="eyebrow">Suite logistica</p>
+        <h1>NexoRuta</h1>
+        <p class="lead">
+          Centro operativo para planificar pedidos, secuenciar rutas y seguir entregas urbanas
+          con foco en coordinacion diaria, ejecucion del chofer y lectura analitica del historico.
+        </p>
 
-      <div class="actions">
-        <a class="btn btn-primary" href="/nuevo-envio">Cargar envío</a>
-        <a class="btn btn-secondary" href="/login">Panel admin</a>
-        <a class="btn btn-secondary" href="/acceso-conductor">Acceso conductor</a>
+        <div class="actions">
+          <a class="btn btn-primary" href="/dashboard">Abrir operaciones</a>
+          <a class="btn btn-secondary" href="/nuevo-envio">Registrar pedido</a>
+          <a class="btn btn-secondary" href="/login">Ingresar</a>
+        </div>
+
+        <div class="hero-metrics" aria-label="Resumen operativo">
+          <div class="hero-metric">
+            <strong>Pedidos</strong>
+            <span>Ingreso y control diario</span>
+          </div>
+          <div class="hero-metric">
+            <strong>Rutas</strong>
+            <span>Secuencia por conductor</span>
+          </div>
+          <div class="hero-metric">
+            <strong>Seguimiento</strong>
+            <span>Chofer y cierre operativo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-aside card">
+        <p class="eyebrow">Circuito diario</p>
+        <div class="journey-step">
+          <span>01</span>
+          <div>
+            <h3>Operaciones</h3>
+            <p>Ingreso y priorizacion de pedidos del dia.</p>
+          </div>
+        </div>
+        <div class="journey-step">
+          <span>02</span>
+          <div>
+            <h3>Planificacion</h3>
+            <p>Asignacion por conductor y optimizacion de secuencia.</p>
+          </div>
+        </div>
+        <div class="journey-step">
+          <span>03</span>
+          <div>
+            <h3>Chofer</h3>
+            <p>Ruta guiada, Waze y avance automatico de estados.</p>
+          </div>
+        </div>
+        <div class="journey-step">
+          <span>04</span>
+          <div>
+            <h3>Analitica</h3>
+            <p>Metricas por rango, conductor y tiempos reales.</p>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="stats-grid">
-      <article class="card stat-item">
-        <h3>Retiros ágiles</h3>
-        <p>Gestión de solicitudes en minutos.</p>
+    <section class="module-grid">
+      <article class="card module-card module-ops">
+        <p class="eyebrow">Operaciones</p>
+        <h3>Pedidos y tablero diario</h3>
+        <p>Carga de pedidos, control de estados y seguimiento del historico por dia o rango.</p>
+        <a class="btn module-link module-cta" href="/dashboard">Ir a Operaciones</a>
       </article>
-      <article class="card stat-item">
-        <h3>Seguimiento claro</h3>
-        <p>Visualiza estado de cada envío.</p>
+
+      <article class="card module-card module-driver">
+        <p class="eyebrow">Chofer</p>
+        <h3>Ejecucion en calle</h3>
+        <p>Parada activa, siguiente entrega, apertura en Waze y confirmacion secuencial.</p>
+        <a class="btn module-link module-cta" href="/dashboard">Ir a Chofer</a>
       </article>
-      <article class="card stat-item">
-        <h3>Base escalable</h3>
-        <p>Tu operación lista para crecer.</p>
+
+      <article class="card module-card module-plan">
+        <p class="eyebrow">Planificacion</p>
+        <h3>Rutas por conductor</h3>
+        <p>Construccion de hoja de ruta, mapa ordenado y salida desde ubicacion real.</p>
+        <a class="btn module-link module-cta" href="/conductores">Ir a Planificacion</a>
+      </article>
+
+      <article class="card module-card module-analytics">
+        <p class="eyebrow">Analitica</p>
+        <h3>Cierre operativo</h3>
+        <p>Volumen, entregas, pendientes, conductores activos y promedio de entrega.</p>
+        <a class="btn module-link module-cta" href="/analitica">Ir a Analitica</a>
       </article>
     </section>
   </main>

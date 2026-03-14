@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analítica | NexoRuta</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260314-1">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <main class="container app-shell">
+    <section class="control-bar card">
+      <div>
+        <p class="eyebrow">NexoRuta</p>
+        <h2>Analítica operativa</h2>
+        <p class="muted">Sesión: {{ usuario_email }}</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/dashboard">Operaciones</a>
+        <a class="btn btn-secondary" href="/conductores">Planificación</a>
+        <a class="btn btn-secondary" href="/logout">Salir</a>
+      </div>
+    </section>
+
+    <section class="stats-grid stats-grid-wide">
+      <article class="card stat-item">
+        <p>Total envíos</p>
+        <h3>{{ metricas.total_envios }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Entregados</p>
+        <h3>{{ metricas.total_entregados }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>En ruta</p>
+        <h3>{{ metricas.total_en_ruta }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Pendientes</p>
+        <h3>{{ metricas.total_pendientes }}</h3>
+      </article>
+      <article class="card stat-item">
+        <p>Conductores activos</p>
+        <h3>{{ metricas.conductores_activos }}</h3>
+      </article>
+      <article class="card stat-item stat-highlight">
+        <p>Promedio de entrega</p>
+        <h3>{% if metricas.promedio_entrega_min is not none %}{{ metricas.promedio_entrega_min }} min{% else %}-{% endif %}</h3>
+      </article>
+    </section>
+
+    <section class="card workspace-card">
+      <div class="workspace-head">
+        <div>
+          <p class="eyebrow">Rango analítico</p>
+          <h3>Rendimiento por conductor</h3>
+        </div>
+      </div>
+
+      <form method="get" action="/analitica" class="filters-bar filters-grid">
+        <label class="filter-block">
+          <span>Fecha</span>
+          <input type="date" name="fecha" value="{{ filtro_fecha }}" class="status-select">
+        </label>
+
+        <label class="filter-block">
+          <span>Desde</span>
+          <input type="date" name="desde" value="{{ filtro_desde }}" class="status-select">
+        </label>
+
+        <label class="filter-block">
+          <span>Hasta</span>
+          <input type="date" name="hasta" value="{{ filtro_hasta }}" class="status-select">
+        </label>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary">Actualizar métricas</button>
+          <a href="/analitica" class="btn btn-ghost">Resetear</a>
+        </div>
+      </form>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Conductor</th>
+              <th>Total</th>
+              <th>Entregados</th>
+              <th>En ruta</th>
+              <th>Pendientes</th>
+              <th>Promedio entrega</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in conductores_metricas %}
+            <tr>
+              <td>{{ item.nombre }}</td>
+              <td>{{ item.total }}</td>
+              <td>{{ item.entregados }}</td>
+              <td>{{ item.en_ruta }}</td>
+              <td>{{ item.pendientes }}</td>
+              <td>{% if item.promedio_entrega_min is not none %}{{ item.promedio_entrega_min }} min{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if conductores_metricas|length == 0 %}
+      <p class="empty-state">No hay datos para el rango seleccionado.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

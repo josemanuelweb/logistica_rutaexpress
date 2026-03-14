@@ -229,6 +229,48 @@ def test_dashboard_range_filters_and_metrics(app_client):
     assert "30.0 min" in response.text
 
 
+def test_analytics_view_groups_metrics_by_conductor(app_client):
+    client, main = app_client
+
+    conn = main.get_db()
+    conn.execute(
+        "INSERT INTO users (email, password) VALUES (?, ?)",
+        ("analytics@test.local", main.hash_password("adminpass")),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id, en_ruta_at, entregado_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente A", "111", "", "Entrega A", "2026-03-11", "entregado", 1, "2026-03-11 08:00:00", "2026-03-11 08:20:00"),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente B", "222", "", "Entrega B", "2026-03-11", "pendiente", 2),
+    )
+    conn.commit()
+    conn.close()
+
+    client.post(
+        "/login",
+        data={"email": "analytics@test.local", "password": "adminpass"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/analitica?fecha=2026-03-11", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Analítica operativa" in response.text
+    assert "Franco Diaz" in response.text
+    assert "Lucia Benitez" in response.text
+    assert "20.0 min" in response.text
+
+
 def test_create_conductor_authenticated(app_client):
     client, main = app_client
 
@@ -524,6 +566,28 @@ def test_build_geocode_queries_add_local_context_and_variants(app_client):
     assert any("Ciudad Autonoma de Buenos Aires" in query for query in las_heras_queries)
 
 
+def test_request_osrm_trip_uses_waypoint_index_as_route_order(app_client, monkeypatch):
+    _, main = app_client
+
+    class FakeResponse:
+        def read(self):
+            return (
+                '{"trips":[{"distance":2500,"duration":600,"geometry":{"coordinates":[[-58.38,-34.60],[-58.39,-34.61],[-58.40,-34.62]]}}],'
+                '"waypoints":['
+                '{"waypoint_index":0,"trips_index":0},'
+                '{"waypoint_index":2,"trips_index":0},'
+                '{"waypoint_index":1,"trips_index":0}'
+                "]}".encode("utf-8")
+            )
+
+    monkeypatch.setattr(main, "urlopen", lambda request, timeout=12: FakeResponse())
+
+    result = main.request_osrm_trip([(-34.60, -58.38), (-34.61, -58.39), (-34.62, -58.40)])
+
+    assert result is not None
+    assert result["order"] == [0, 1, 2]
+
+
 def test_generate_route_uses_all_delivery_addresses_in_optimized_order(app_client, monkeypatch):
     client, main = app_client
 
@@ -561,9 +625,8 @@ def test_generate_route_uses_all_delivery_addresses_in_optimized_order(app_clien
 
     monkeypatch.setattr(
         main,
-        "request_osrm_trip",
+        "build_batched_road_route",
         lambda route_coords: {
-            "order": [0, 2, 1, 3],
             "path": [[lat, lng] for lat, lng in route_coords],
             "distance_km": 12.5,
             "duration_min": 31.0,
@@ -580,7 +643,7 @@ def test_generate_route_uses_all_delivery_addresses_in_optimized_order(app_clien
 
     assert response.status_code == 200
     rows = re.findall(r"<tr>\s*<td>\d+</td>\s*<td>#\d+</td>\s*<td>[^<]+</td>\s*<td>([^<]+)</td>", response.text)
-    assert rows[:3] == ["Entrega B", "Entrega C", "Entrega A"]
+    assert rows[:3] == ["Entrega A", "Entrega B", "Entrega C"]
 
 
 def test_generate_route_uses_current_origin_coordinates_when_provided(app_client, monkeypatch):
@@ -604,16 +667,15 @@ def test_generate_route_uses_current_origin_coordinates_when_provided(app_client
 
     captured = {}
 
-    def fake_trip(route_coords):
+    def fake_route(route_coords):
         captured["route_coords"] = route_coords
         return {
-            "order": [0, 1],
             "path": [[lat, lng] for lat, lng in route_coords],
             "distance_km": 2.0,
             "duration_min": 5.0,
         }
 
-    monkeypatch.setattr(main, "request_osrm_trip", fake_trip)
+    monkeypatch.setattr(main, "build_batched_road_route", fake_route)
 
     client.post(
         "/login",
@@ -629,6 +691,57 @@ def test_generate_route_uses_current_origin_coordinates_when_provided(app_client
     assert response.status_code == 200
     assert captured["route_coords"][0] == (-34.55, -58.45)
     assert "Ubicacion actual" in response.text
+
+
+def test_generate_route_defaults_to_latest_conductor_date_when_fecha_is_missing(app_client, monkeypatch):
+    client, main = app_client
+
+    conn = main.get_db()
+    conn.execute(
+        "INSERT INTO users (email, password) VALUES (?, ?)",
+        ("admin10@test.local", main.hash_password("adminpass")),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id, entrega_lat, entrega_lng)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente Viejo", "111", "R1", "Entrega Vieja", "2026-03-11", "pendiente", 1, -34.61, -58.40),
+    )
+    conn.execute(
+        """
+        INSERT INTO envios
+        (cliente, telefono, direccion_retiro, direccion_entrega, fecha, estado, conductor_id, entrega_lat, entrega_lng)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("Cliente Nuevo", "222", "R2", "Entrega Nueva", "2026-03-13", "pendiente", 1, -34.62, -58.41),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        main,
+        "build_batched_road_route",
+        lambda route_coords: {
+            "path": [[lat, lng] for lat, lng in route_coords],
+            "distance_km": 3.0,
+            "duration_min": 8.0,
+        },
+    )
+
+    client.post(
+        "/login",
+        data={"email": "admin10@test.local", "password": "adminpass"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/conductores/1/ruta", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "2026-03-13" in response.text
+    assert "Entrega Nueva" in response.text
+    assert "Entrega Vieja" not in response.text
 
 
 def test_start_route_marks_first_stop_as_en_ruta(app_client, monkeypatch):
@@ -661,9 +774,8 @@ def test_start_route_marks_first_stop_as_en_ruta(app_client, monkeypatch):
 
     monkeypatch.setattr(
         main,
-        "request_osrm_trip",
+        "build_batched_road_route",
         lambda route_coords: {
-            "order": [0, 1, 2],
             "path": [[lat, lng] for lat, lng in route_coords],
             "distance_km": 5.0,
             "duration_min": 12.0,
@@ -687,11 +799,11 @@ def test_start_route_marks_first_stop_as_en_ruta(app_client, monkeypatch):
     check_conn = main.get_db()
     first = check_conn.execute(
         "SELECT estado, en_ruta_at FROM envios WHERE cliente = ?",
-        ("Cliente 2",),
+        ("Cliente 1",),
     ).fetchone()
     second = check_conn.execute(
         "SELECT estado, en_ruta_at FROM envios WHERE cliente = ?",
-        ("Cliente 1",),
+        ("Cliente 2",),
     ).fetchone()
     check_conn.close()
 
@@ -732,9 +844,8 @@ def test_complete_stop_marks_delivered_and_advances_next_stop(app_client, monkey
 
     monkeypatch.setattr(
         main,
-        "request_osrm_trip",
+        "build_batched_road_route",
         lambda route_coords: {
-            "order": [0, 1, 2],
             "path": [[lat, lng] for lat, lng in route_coords],
             "distance_km": 5.0,
             "duration_min": 12.0,

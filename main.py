@@ -103,6 +103,44 @@ def normalize_optional_date(raw_date: str) -> str:
         return ""
 
 
+def resolve_route_date(
+    conn: sqlite3.Connection,
+    conductor_id: int,
+    fecha: str = "",
+    desde: str = "",
+    hasta: str = "",
+) -> str:
+    fecha_filtro = normalize_optional_date(fecha)
+    if fecha_filtro:
+        return fecha_filtro
+
+    desde_filtro = normalize_optional_date(desde)
+    hasta_filtro = normalize_optional_date(hasta)
+
+    if desde_filtro and hasta_filtro and desde_filtro == hasta_filtro:
+        return desde_filtro
+
+    filtros = ["conductor_id = ?"]
+    params: list[object] = [conductor_id]
+    if desde_filtro:
+        filtros.append("fecha >= ?")
+        params.append(desde_filtro)
+    if hasta_filtro:
+        filtros.append("fecha <= ?")
+        params.append(hasta_filtro)
+
+    row = conn.execute(
+        "SELECT fecha FROM envios WHERE "
+        + " AND ".join(filtros)
+        + " ORDER BY fecha DESC, id DESC LIMIT 1",
+        params,
+    ).fetchone()
+    if row and row["fecha"]:
+        return str(row["fecha"])
+
+    return today_iso()
+
+
 def calculate_delivery_minutes(started_at: Optional[str], delivered_at: Optional[str]) -> Optional[float]:
     if not started_at or not delivered_at:
         return None
@@ -115,6 +153,33 @@ def calculate_delivery_minutes(started_at: Optional[str], delivered_at: Optional
     if delta_min < 0:
         return None
     return round(delta_min, 1)
+
+
+def build_metrics_for_envios(envios: list[sqlite3.Row]) -> Dict[str, object]:
+    total_envios = len(envios)
+    total_entregados = sum(1 for envio in envios if envio["estado"] == "entregado")
+    total_pendientes = sum(1 for envio in envios if envio["estado"] == "pendiente")
+    total_en_ruta = sum(1 for envio in envios if envio["estado"] == "en_ruta")
+    conductores_activos = len(
+        {envio["conductor_id"] for envio in envios if envio["conductor_id"] is not None}
+    )
+    delivery_minutes = [
+        value
+        for value in (
+            calculate_delivery_minutes(envio["en_ruta_at"], envio["entregado_at"])
+            for envio in envios
+        )
+        if value is not None
+    ]
+    promedio_entrega_min = round(sum(delivery_minutes) / len(delivery_minutes), 1) if delivery_minutes else None
+    return {
+        "total_envios": total_envios,
+        "total_entregados": total_entregados,
+        "total_pendientes": total_pendientes,
+        "total_en_ruta": total_en_ruta,
+        "conductores_activos": conductores_activos,
+        "promedio_entrega_min": promedio_entrega_min,
+    }
 
 
 def parse_coordinate(raw_value: str, minimum: float, maximum: float) -> Optional[float]:
@@ -277,7 +342,10 @@ def request_osrm_trip(coords: List[Tuple[float, float]]) -> Optional[Dict[str, o
     except Exception:
         return None
 
-    ordered_input_indexes = [int(item["waypoint_index"]) for item in sorted(waypoints, key=lambda item: item["trips_index"])]
+    ordered_input_indexes = [
+        int(item["waypoint_index"])
+        for item in sorted(waypoints, key=lambda item: item["waypoint_index"])
+    ]
     coords_geojson = trip["geometry"]["coordinates"]
     path = [[float(item[1]), float(item[0])] for item in coords_geojson]
     distance_km = round(float(trip.get("distance", 0.0)) / 1000.0, 2)
@@ -430,36 +498,18 @@ def resolve_route_plan(
     route_path: List[List[float]] = [[origen_lat_value, origen_lng_value]]
     total_km = 0.0
     total_min = 0.0
+    order_source = "sin_paradas"
 
     if points:
-        trip_coords = [(origen_lat_value, origen_lng_value)] + [
-            (float(point["lat"]), float(point["lng"])) for point in points
+        ordered = optimize_order(points, origen_lat_value, origen_lng_value)
+        road_coords = [(origen_lat_value, origen_lng_value)] + [
+            (float(stop["lat"]), float(stop["lng"])) for stop in ordered
         ]
-        optimized_trip = request_osrm_trip(trip_coords)
-
-        if optimized_trip is not None:
-            ordered_indexes = [
-                idx - 1 for idx in optimized_trip["order"] if int(idx) > 0  # type: ignore[index]
-            ]
-            ordered = [points[idx] for idx in ordered_indexes if 0 <= idx < len(points)]
-            if len(ordered) == len(points):
-                route_path = optimized_trip["path"]  # type: ignore[index]
-                total_km = float(optimized_trip["distance_km"])  # type: ignore[index]
-                total_min = float(optimized_trip["duration_min"])  # type: ignore[index]
-            else:
-                optimized_trip = None
-
-        if not points:
-            ordered = []
-        elif optimized_trip is None:
-            ordered = optimize_order(points, origen_lat_value, origen_lng_value)
-            road_coords = [(origen_lat_value, origen_lng_value)] + [
-                (float(stop["lat"]), float(stop["lng"])) for stop in ordered
-            ]
-            road_route = build_batched_road_route(road_coords)
-            route_path = road_route["path"]
-            total_km = float(road_route["distance_km"])
-            total_min = float(road_route["duration_min"])
+        road_route = build_batched_road_route(road_coords)
+        route_path = road_route["path"]
+        total_km = float(road_route["distance_km"])
+        total_min = float(road_route["duration_min"])
+        order_source = "heuristica_cercania"
     else:
         ordered = []
 
@@ -477,6 +527,7 @@ def resolve_route_plan(
         "route_path": route_path,
         "total_km": round(total_km, 2),
         "total_min": round(total_min, 1),
+        "order_source": order_source,
     }
 
 
@@ -552,11 +603,21 @@ def init_db():
             ("Lucia Benitez", "+54 11 3987 1140"),
         )
 
-    conteo_usuarios = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    if conteo_usuarios == 0:
+    admin_email = "admin@rutaexpress.local"
+    admin_password_hash = hash_password("1234")
+    admin_row = conn.execute(
+        "SELECT id FROM users WHERE email = ?",
+        (admin_email,),
+    ).fetchone()
+    if not admin_row:
         conn.execute(
             "INSERT INTO users (email, password) VALUES (?, ?)",
-            ("admin@rutaexpress.local", hash_password("admin1234")),
+            (admin_email, admin_password_hash),
+        )
+    else:
+        conn.execute(
+            "UPDATE users SET password = ? WHERE email = ?",
+            (admin_password_hash, admin_email),
         )
 
     conn.commit()
@@ -675,23 +736,7 @@ def dashboard(
         "SELECT id, nombre FROM conductores ORDER BY nombre ASC"
     ).fetchall()
     conn.close()
-
-    total_envios = len(envios)
-    total_entregados = sum(1 for envio in envios if envio["estado"] == "entregado")
-    total_pendientes = sum(1 for envio in envios if envio["estado"] == "pendiente")
-    total_en_ruta = sum(1 for envio in envios if envio["estado"] == "en_ruta")
-    conductores_activos = len(
-        {envio["conductor_id"] for envio in envios if envio["conductor_id"] is not None}
-    )
-    delivery_minutes = [
-        value
-        for value in (
-            calculate_delivery_minutes(envio["en_ruta_at"], envio["entregado_at"])
-            for envio in envios
-        )
-        if value is not None
-    ]
-    promedio_entrega_min = round(sum(delivery_minutes) / len(delivery_minutes), 1) if delivery_minutes else None
+    metricas = build_metrics_for_envios(envios)
 
     return templates.TemplateResponse(
         request,
@@ -706,14 +751,7 @@ def dashboard(
             "filtro_desde": desde_filtro,
             "filtro_hasta": hasta_filtro,
             "usuario_email": request.session.get("user_email", ""),
-            "metricas": {
-                "total_envios": total_envios,
-                "total_entregados": total_entregados,
-                "total_pendientes": total_pendientes,
-                "total_en_ruta": total_en_ruta,
-                "conductores_activos": conductores_activos,
-                "promedio_entrega_min": promedio_entrega_min,
-            },
+            "metricas": metricas,
         },
     )
 
@@ -831,6 +869,101 @@ def descargar_hoja_ruta(
     )
 
 
+@app.get("/analitica", response_class=HTMLResponse)
+def analitica(
+    request: Request,
+    fecha: str = "",
+    desde: str = "",
+    hasta: str = "",
+):
+    auth_redirect = login_required(request)
+    if auth_redirect:
+        return auth_redirect
+
+    fecha_filtro = normalize_optional_date(fecha)
+    desde_filtro = normalize_optional_date(desde)
+    hasta_filtro = normalize_optional_date(hasta)
+
+    conn = get_db()
+    filtros = []
+    params: list[object] = []
+    if fecha_filtro:
+        filtros.append("e.fecha = ?")
+        params.append(fecha_filtro)
+    else:
+        if desde_filtro:
+            filtros.append("e.fecha >= ?")
+            params.append(desde_filtro)
+        if hasta_filtro:
+            filtros.append("e.fecha <= ?")
+            params.append(hasta_filtro)
+
+    sql = """
+        SELECT e.*, c.nombre AS conductor_nombre
+        FROM envios e
+        LEFT JOIN conductores c ON c.id = e.conductor_id
+    """
+    if filtros:
+        sql += " WHERE " + " AND ".join(filtros)
+    sql += " ORDER BY e.fecha DESC, e.id DESC"
+
+    envios = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    metricas = build_metrics_for_envios(envios)
+    resumen_por_conductor: Dict[str, Dict[str, object]] = {}
+    for envio in envios:
+        key = envio["conductor_nombre"] or "Sin asignar"
+        if key not in resumen_por_conductor:
+            resumen_por_conductor[key] = {
+                "nombre": key,
+                "total": 0,
+                "entregados": 0,
+                "en_ruta": 0,
+                "pendientes": 0,
+                "minutos": [],
+            }
+        item = resumen_por_conductor[key]
+        item["total"] += 1
+        if envio["estado"] == "entregado":
+            item["entregados"] += 1
+        elif envio["estado"] == "en_ruta":
+            item["en_ruta"] += 1
+        elif envio["estado"] == "pendiente":
+            item["pendientes"] += 1
+        minutos = calculate_delivery_minutes(envio["en_ruta_at"], envio["entregado_at"])
+        if minutos is not None:
+            item["minutos"].append(minutos)
+
+    conductores_metricas = []
+    for item in resumen_por_conductor.values():
+        minutos = item["minutos"]
+        conductores_metricas.append(
+            {
+                "nombre": item["nombre"],
+                "total": item["total"],
+                "entregados": item["entregados"],
+                "en_ruta": item["en_ruta"],
+                "pendientes": item["pendientes"],
+                "promedio_entrega_min": round(sum(minutos) / len(minutos), 1) if minutos else None,
+            }
+        )
+    conductores_metricas.sort(key=lambda item: (-item["entregados"], -item["total"], item["nombre"]))
+
+    return templates.TemplateResponse(
+        request,
+        "analitica.html",
+        {
+            "usuario_email": request.session.get("user_email", ""),
+            "metricas": metricas,
+            "conductores_metricas": conductores_metricas,
+            "filtro_fecha": fecha_filtro,
+            "filtro_desde": desde_filtro,
+            "filtro_hasta": hasta_filtro,
+        },
+    )
+
+
 @app.get("/conductores", response_class=HTMLResponse)
 def conductores_page(request: Request):
     auth_redirect = login_required(request)
@@ -922,6 +1055,8 @@ def ruta_conductor(
     request: Request,
     conductor_id: int,
     fecha: str = "",
+    desde: str = "",
+    hasta: str = "",
     estado: str = "",
     origen_lat: str = "",
     origen_lng: str = "",
@@ -931,7 +1066,6 @@ def ruta_conductor(
     if auth_redirect:
         return auth_redirect
 
-    fecha_filtro = normalize_date_or_today(fecha)
     estado_normalizado = estado.strip().lower().replace(" ", "_")
 
     conn = get_db()
@@ -948,6 +1082,7 @@ def ruta_conductor(
         origen_lat_value = -34.6037
         origen_lng_value = -58.3816
 
+    fecha_filtro = resolve_route_date(conn, conductor_id, fecha, desde, hasta)
     origin_label = "Ubicacion actual" if origen_lat_value != -34.6037 or origen_lng_value != -58.3816 else "Origen sugerido (centro CABA)"
     route_plan = resolve_route_plan(
         conn,
@@ -972,6 +1107,7 @@ def ruta_conductor(
             "total_km": route_plan["total_km"],
             "total_min": route_plan["total_min"],
             "route_path": route_plan["route_path"],
+            "order_source": route_plan["order_source"],
             "usuario_email": request.session.get("user_email", ""),
             "origen_lat": origen_lat_value,
             "origen_lng": origen_lng_value,

@@ -3,25 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conductores | Ruta Express BA</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Planificación | NexoRuta</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260314-1">
 </head>
 <body>
-  <main class="container">
-    <section class="card dashboard-head">
+  <div class="bg-grid"></div>
+  <main class="container app-shell">
+    <section class="control-bar card">
       <div>
-        <p class="eyebrow">Operación</p>
-        <h2>Conductores</h2>
+        <p class="eyebrow">NexoRuta</p>
+        <h2>Planificación de conductores</h2>
         <p class="muted">Sesión: {{ usuario_email }}</p>
       </div>
       <div class="actions">
-        <a class="btn btn-secondary" href="/dashboard">Volver al panel</a>
+        <a class="btn btn-secondary" href="/dashboard">Operaciones</a>
+        <a class="btn btn-secondary" href="/analitica">Analítica</a>
         <a class="btn btn-secondary" href="/logout">Salir</a>
       </div>
     </section>
 
+    <section class="module-strip">
+      <article class="card strip-card strip-live">
+        <p class="eyebrow">Planificación</p>
+        <h3>Conductores y capacidad</h3>
+        <p>Alta, edición y administración del equipo de distribución.</p>
+      </article>
+      <article class="card strip-card">
+        <p class="eyebrow">Ruta</p>
+        <h3>Salida por conductor</h3>
+        <p>Las rutas se generan desde Operaciones cuando filtrás fecha y conductor.</p>
+      </article>
+    </section>
+
     <section class="card form-card">
-      <h3>Gestionar conductores</h3>
+      <h3>Agregar conductor</h3>
       <form method="post" action="/conductores" class="form-grid two-cols">
         <div>
           <label>Nombre</label>
@@ -37,7 +52,14 @@
       </form>
     </section>
 
-    <section class="card table-card">
+    <section class="card workspace-card">
+      <div class="workspace-head">
+        <div>
+          <p class="eyebrow">Base operativa</p>
+          <h3>Equipo disponible</h3>
+        </div>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>

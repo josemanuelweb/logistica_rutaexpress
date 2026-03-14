@@ -4,25 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ruta optimizada | Ruta Express BA</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260314-1">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 </head>
 <body>
-  <main class="container">
+  <main class="container route-shell">
     {% set active_stop = stops|selectattr("estado", "equalto", "en_ruta")|list|first %}
     {% set pending_stops = stops|selectattr("estado", "equalto", "pendiente")|list %}
     {% set next_stop = pending_stops|first %}
     {% set delivered_stops = stops|selectattr("estado", "equalto", "entregado")|list %}
 
-    <section class="card dashboard-head">
-      <div>
+    <section class="card dashboard-head route-header route-header-compact">
+      <div class="route-header-copy">
         <p class="eyebrow">Ruteo</p>
         <h2>Ruta optimizada de {{ conductor.nombre }}</h2>
-        <p class="muted">Fecha: {{ fecha_filtro }} | Distancia estimada: {{ total_km }} km | Tiempo estimado: {{ total_min }} min</p>
-        <p class="muted">Origen de partida: {{ origin_label }}</p>
-        <p class="muted">Sesión: {{ usuario_email }}</p>
+        <p class="muted">Fecha: {{ fecha_filtro }} | Distancia: {{ total_km }} km | Tiempo: {{ total_min }} min</p>
+        <div class="route-header-meta">
+          <span>Origen: {{ origin_label }}</span>
+          <span>Motor: {{ order_source }}</span>
+          <span>Sesion: {{ usuario_email }}</span>
+        </div>
       </div>
-      <div class="actions">
+      <div class="actions route-header-actions">
         {% if stops|length > 0 and not active_stop %}
         <form method="post" action="/conductores/{{ conductor.id }}/ruta/iniciar">
           <input type="hidden" name="fecha" value="{{ fecha_filtro }}">
@@ -34,6 +37,24 @@
         <a class="btn btn-secondary" href="/dashboard?fecha={{ fecha_filtro }}&conductor={{ conductor.id }}&estado={{ estado_filtro }}">Volver al panel</a>
         <a class="btn btn-secondary" href="/logout">Salir</a>
       </div>
+    </section>
+
+    <section class="route-mobile-summary">
+      <article class="card route-mobile-pill">
+        <p class="eyebrow">Ruta</p>
+        <h3>{{ stops|length }} paradas</h3>
+        <p class="muted">Motor: {{ order_source }}</p>
+      </article>
+      <article class="card route-mobile-pill">
+        <p class="eyebrow">Estado</p>
+        <h3>{{ delivered_stops|length }}/{{ stops|length }}</h3>
+        <p class="muted">Entregas completadas</p>
+      </article>
+      <article class="card route-mobile-pill">
+        <p class="eyebrow">Tiempo</p>
+        <h3>{{ total_min }} min</h3>
+        <p class="muted">Estimado total</p>
+      </article>
     </section>
 
     <section class="route-focus-grid">
@@ -50,11 +71,11 @@
           <input type="hidden" name="fecha" value="{{ fecha_filtro }}">
           <input type="hidden" name="origen_lat" value="{{ origen_lat }}">
           <input type="hidden" name="origen_lng" value="{{ origen_lng }}">
-          <button type="submit" class="btn btn-success">Entregado y seguir</button>
+          <button type="submit" class="btn btn-success btn-driver-action">Entregado y seguir</button>
         </form>
         {% else %}
         <h3>Ruta sin iniciar</h3>
-        <p class="muted">Todavía no hay una parada en curso para este conductor.</p>
+        <p class="muted">Todavia no hay una parada en curso para este conductor.</p>
         {% endif %}
       </article>
 
@@ -80,25 +101,25 @@
           {% endfor %}
         </ul>
         {% if delivered_stops|length > 3 %}
-        <p class="muted">y {{ delivered_stops|length - 3 }} más</p>
+        <p class="muted">y {{ delivered_stops|length - 3 }} mas</p>
         {% endif %}
         {% else %}
-        <p class="muted">Todavía no hay entregas completadas en esta ruta.</p>
+        <p class="muted">Todavia no hay entregas completadas en esta ruta.</p>
         {% endif %}
       </article>
     </section>
 
-    <section class="card route-driver-banner">
+    <section class="card route-driver-banner route-driver-banner-mobile">
       {% if active_stop %}
-      <div>
+      <div class="route-driver-copy">
         <p class="eyebrow">Modo chofer</p>
         <h3>Ir a {{ active_stop.direccion_entrega }}</h3>
         <p class="muted">Cliente: {{ active_stop.cliente }} | Pedido #{{ active_stop.id }}</p>
-        <p class="muted route-desktop-hint" id="route-desktop-hint" hidden>Auto-Waze disponible solo en móvil. En escritorio usá el botón manual.</p>
+        <p class="muted route-desktop-hint" id="route-desktop-hint" hidden>Auto-Waze disponible solo en movil. En escritorio usa el boton manual.</p>
       </div>
-      <div class="actions">
+      <div class="actions route-driver-actions">
         <a
-          class="btn btn-secondary"
+          class="btn btn-secondary btn-driver-nav"
           href="https://www.waze.com/ul?ll={{ active_stop.lat }},{{ active_stop.lng }}&navigate=yes"
           target="_blank"
           rel="noopener noreferrer"
@@ -107,79 +128,89 @@
         </a>
       </div>
       {% else %}
-      <div>
+      <div class="route-driver-copy">
         <p class="eyebrow">Modo chofer</p>
         <h3>Ruta preparada</h3>
-        <p class="muted">Iniciá la ruta para activar la primera entrega y navegación guiada.</p>
+        <p class="muted">Inicia la ruta para activar la primera entrega y navegacion guiada.</p>
       </div>
       {% endif %}
     </section>
 
-    <section class="card table-card">
-      <div id="mapa-ruta" class="map-box" style="height: 420px; min-height: 420px;"></div>
+    <section class="card table-card route-map-card">
+      <div id="mapa-ruta" class="map-box"></div>
       <div class="route-legend">
         <span class="route-legend-item"><span class="route-dot route-dot-origin"></span> Punto de partida</span>
         <span class="route-legend-item"><span class="route-dot route-dot-stop"></span> Entregas</span>
       </div>
       {% if stops|length == 0 %}
-      <p class="empty-state">No hay paradas geocodificadas para esta combinación de filtros.</p>
+      <p class="empty-state">No hay paradas geocodificadas para esta combinacion de filtros.</p>
       {% endif %}
       {% if unresolved|length > 0 %}
-      <p class="empty-state">Direcciones sin coordenadas: {{ unresolved|join(', ') }}</p>
+      <div class="route-alert">
+        <p class="eyebrow">Revision manual</p>
+        <p class="route-alert-text">Direcciones sin coordenadas: {{ unresolved|join(', ') }}</p>
+      </div>
       {% endif %}
     </section>
 
-    <section class="card table-card">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Orden</th>
-              <th>ID</th>
-              <th>Cliente</th>
-              <th>Entrega</th>
-              <th>Estado</th>
-              <th>Tiempo</th>
-              <th>Km tramo</th>
-              <th>Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for stop in stops %}
-            <tr>
-              <td>{{ loop.index }}</td>
-              <td>#{{ stop.id }}</td>
-              <td>{{ stop.cliente }}</td>
-              <td>{{ stop.direccion_entrega }}</td>
-              <td>
-                <span class="badge badge-{{ stop.estado|lower|replace(' ', '_') }}">
-                  {{ stop.estado|replace('_', ' ')|title }}
-                </span>
-              </td>
-              <td>
-                {% if stop.estado == "en_ruta" and stop.en_ruta_at %}
-                <span class="muted">Desde {{ stop.en_ruta_at }}</span>
-                {% elif stop.estado == "entregado" and stop.entregado_at %}
-                <span class="muted">Entregado {{ stop.entregado_at }}</span>
-                {% else %}
-                <span class="muted">Sin registro</span>
-                {% endif %}
-              </td>
-              <td>{{ stop.km_desde_anterior }}</td>
-              <td>
-                {% if stop.estado == "en_ruta" %}
-                <span class="muted">Parada actual</span>
-                {% elif stop.estado == "entregado" %}
-                <span class="muted">Completado</span>
-                {% else %}
-                <span class="muted">En espera</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+    <section class="card table-card route-debug-card">
+      <details class="route-debug-details">
+        <summary>Ver detalle tecnico de paradas</summary>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Orden</th>
+                <th>ID</th>
+                <th>Cliente</th>
+                <th>Entrega</th>
+                <th>Estado</th>
+                <th>Coords</th>
+                <th>Tiempo</th>
+                <th>Km tramo</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for stop in stops %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>#{{ stop.id }}</td>
+                <td>{{ stop.cliente }}</td>
+                <td>{{ stop.direccion_entrega }}</td>
+                <td>
+                  <span class="badge badge-{{ stop.estado|lower|replace(' ', '_') }}">
+                    {{ stop.estado|replace('_', ' ')|title }}
+                  </span>
+                </td>
+                <td>
+                  <span class="muted">{{ stop.lat }}, {{ stop.lng }}</span>
+                </td>
+                <td>
+                  {% if stop.estado == "en_ruta" and stop.en_ruta_at %}
+                  <span class="muted">Desde {{ stop.en_ruta_at }}</span>
+                  {% elif stop.estado == "entregado" and stop.entregado_at %}
+                  <span class="muted">Entregado {{ stop.entregado_at }}</span>
+                  {% else %}
+                  <span class="muted">Sin registro</span>
+                  {% endif %}
+                </td>
+                <td>{{ stop.km_desde_anterior }}</td>
+                <td>
+                  {% if stop.estado == "en_ruta" %}
+                  <span class="muted">Parada actual</span>
+                  {% elif stop.estado == "entregado" %}
+                  <span class="muted">Completado</span>
+                  {% else %}
+                  <span class="muted">En espera</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   </main>
 
@@ -199,7 +230,7 @@
         const wazeUrl = `https://www.waze.com/ul?ll=${activeStop.lat},${activeStop.lng}&navigate=yes`;
         const statusBanner = document.createElement('div');
         statusBanner.className = 'card route-driver-banner';
-        statusBanner.innerHTML = '<div><p class="eyebrow">Navegación</p><h3>Abriendo Waze</h3><p class="muted">Si no se abre automáticamente, usá el botón "Abrir en Waze".</p></div>';
+        statusBanner.innerHTML = '<div><p class="eyebrow">Navegacion</p><h3>Abriendo Waze</h3><p class="muted">Si no se abre automaticamente, usa el boton "Abrir en Waze".</p></div>';
         const container = document.querySelector('.container');
         if (container) {
           container.insertBefore(statusBanner, container.firstChild);
